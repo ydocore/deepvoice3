@@ -68,7 +68,7 @@ def world(data,fs):
 
 def world_synthesize(f0,sp,ap):
     f0 = f0.astype(np.double)
-    sp = sp.astype(np.double)
+    sp = _db_to_amp(_denormalize(sp) + hparams.ref_level_db).astype(np.double)
     ap = ap.astype(np.double)
     return pw.synthesize(f0,sp,ap,hparams.sample_rate)
     #wav = wav * 32767 / max(0.01, np.max(np.abs(wav)))
