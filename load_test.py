@@ -5,11 +5,12 @@ usage: load_test.py <in_dir> <out_dir>
 
 from docopt import docopt
 import numpy as np
-from train_back import LinearSpecDataSource, SpDataSource, MelSpecDataSource,FileSourceDataset
+from train import LinearSpecDataSource, SpDataSource, MelSpecDataSource,FileSourceDataset
 import os
 from os.path import join
 from tqdm import tqdm
 import time
+import audio
 
 if __name__ == '__main__':
     args = docopt(__doc__)
@@ -18,15 +19,12 @@ if __name__ == '__main__':
     out_dir = args["<out_dir>"]
 
     speaker_id = None
-    LIN = FileSourceDataset(MelSpecDataSource(in_dir, speaker_id))
-    start = time.time()
-    for i, lin in enumerate(LIN):
-        if i % 15 == 0:
-            end = time.time()
-            print("road_time:{0}".format(end-start))
-            start = time.time()
-
-    a = 0
+    SP = FileSourceDataset(SpDataSource(in_dir, speaker_id))
+    for i, sp in tqdm(enumerate(SP,1)):
+        log_sp = audio._amp_to_db(np.abs(sp)) -10
+        log_sp = audio._normalize(log_sp)
+        sp_filename = 'ljspeech-sp-%05d.npy' % i
+        np.save(os.path.join(out_dir, sp_filename), log_sp, allow_pickle=False)
 
     '''
     os.makedirs(out_dir, exist_ok=True)
