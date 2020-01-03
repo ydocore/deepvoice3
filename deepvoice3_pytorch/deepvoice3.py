@@ -68,8 +68,7 @@ class Encoder(nn.Module):
         #self.convolutions.append(Conv1d(in_channels, embed_dim, kernel_size=1,
         #                                padding=0, dilation=1, std_mul=std_mul,
         #                                dropout=dropout))
-        self.linear = nn.ModuleList()
-        self.linear.append(Linear(in_channels,embed_dim))#original
+        self.linear = Linear(in_channels,embed_dim)#original
 
     def forward(self, text_sequences, text_positions=None, lengths=None,
                 speaker_embed=None):
@@ -98,8 +97,7 @@ class Encoder(nn.Module):
 
         # Back to B x T x C
         x = x.transpose(1, 2)
-        for f in self.linear:
-            x = f(x)
+        x = self.linear(x)
         keys = x
 
         if speaker_embed_btc is not None:
