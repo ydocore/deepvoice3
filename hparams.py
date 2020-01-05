@@ -35,12 +35,13 @@ hparams = hparam_tf.hparam.HParams(
     fmin=125,
     fmax=7600,
     fft_size=4096, #origin is 1024
-    fft_wsize=1102,
-    hop_size=275, #origin is 256
+    fft_wsize=1024,
+    hop_size=256, #fft_wsize/4
     sample_rate=22050, #origin is 22050
     preemphasis=0.97,
-    min_level_db=-100,
-    ref_level_db=10,
+    min_level_db=-80,
+    spec_ref_level_db=50,
+    sp_ref_level_db=20,
     f0_norm=400,
     world_upsample=2.5,
     # whether to rescale waveform or not.
@@ -56,7 +57,7 @@ hparams = hparam_tf.hparam.HParams(
     # Model:
     downsample_step=1,  # must be 4 when builder="nyanko"
     outputs_per_step=4,  # must be 1 when builder="nyanko"
-    embedding_weight_std=0.01,
+    embedding_weight_std=1,
     speaker_embedding_weight_std=0.01,
     padding_idx=0,
     # Maximum number of input text length
@@ -72,7 +73,7 @@ hparams = hparam_tf.hparam.HParams(
     converter_channels=256,
     query_position_rate=1.0,
     # can be computed by `compute_timestamp_ratio.py`.
-    key_position_rate=1.14,  # 2.37 for jsut
+    key_position_rate=1.226,  # 2.37 for jsut
     position_weight=1.0,
     key_projection=True,
     value_projection=True,
