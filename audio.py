@@ -32,28 +32,26 @@ def inv_preemphasis(x):
 
 
 def spectrogram(y):
-    #D = _lws_processor().stft(preemphasis(y)).T
     D = librosa.stft(y,n_fft=hparams.fft_size,hop_length=hparams.hop_size,win_length=hparams.fft_wsize)
-    S = _amp_to_db(np.abs(D)) - hparams.ref_level_db
+    #S = _amp_to_db(np.abs(D)) - hparams.spec_ref_level_db
+    S = librosa.amplitude_to_db(np.abs(D)) - hparams.spec_ref_level_db
+    #if S.max() > 0:
+    #    print("over spec ref level db :%f" % S.max()+hparams.spec_ref_level_db)
     return _normalize(S)
 
 
 def inv_spectrogram(spectrogram):
     '''Converts spectrogram to waveform using librosa'''
-    S = _db_to_amp(_denormalize(spectrogram) + hparams.ref_level_db)  # Convert back to linear
-    '''
-    processor = _lws_processor()
-    D = processor.run_lws(S.astype(np.float64).T ** hparams.power)
-    '''
+    #S = _db_to_amp(_denormalize(spectrogram) + hparams.spec_ref_level_db)  # Convert back to linear
+    S = librosa.db_to_amplitude(_denormalize(spectrogram) + hparams.spec_ref_level_db)
     D = librosa.griffinlim(S ** hparams.power,hop_length=hparams.hop_size,win_length=hparams.fft_wsize)
-    #y = librosa.istft(D,hop_length=hparams.hop_size,win_length=hparams.fft_wsize)
     return D
 
 
 def melspectrogram(y):
-    #D = _lws_processor().stft(preemphasis(y)).T
     D = librosa.stft(y,n_fft=hparams.fft_size,hop_length=hparams.hop_size,win_length=hparams.fft_wsize)
-    S = _amp_to_db(_linear_to_mel(np.abs(D))) - hparams.ref_level_db
+    #S = _amp_to_db(_linear_to_mel(np.abs(D))) - hparams.spec_ref_level_db
+    S = librosa.amplitude_to_db(_linear_to_mel(np.abs(D))) - hparams.spec_ref_level_db
     if not hparams.allow_clipping_in_normalization:
         assert S.max() <= 0 and S.min() - hparams.min_level_db >= 0
     return _normalize(S)
@@ -64,11 +62,14 @@ def _lws_processor():
 
 def world(data,fs):
     f0,sp,ap = pw.wav2world(data.astype(float),fs)
+    sp = librosa.power_to_db(np.abs(sp)) - hparams.sp_ref_level_db
+    #if sp.max() > 0:
+    #    print("over SP ref level db:%f" % sp.max()+hparams.sp_ref_level_db)
     return f0,sp,ap
 
 def world_synthesize(f0,sp,ap):
     f0 = f0.astype(np.double)
-    sp = _db_to_amp(_denormalize(sp) + hparams.ref_level_db).astype(np.double)
+    sp = librosa.db_to_power(_denormalize(sp) + hparams.sp_ref_level_db).astype(np.double)
     ap = ap.astype(np.double)
     return pw.synthesize(f0,sp,ap,hparams.sample_rate)
     #wav = wav * 32767 / max(0.01, np.max(np.abs(wav)))
@@ -105,8 +106,8 @@ def _db_to_amp(x):
 
 
 def _normalize(S):
-    return np.clip((S - hparams.min_level_db) / -hparams.min_level_db, 0, 2)
+    return np.clip((S - hparams.min_level_db) / -hparams.min_level_db, 0, 1)
 
 
 def _denormalize(S):
-    return (np.clip(S, 0, 2) * -hparams.min_level_db) + hparams.min_level_db
+    return (np.clip(S, 0, 1) * -hparams.min_level_db) + hparams.min_level_db
