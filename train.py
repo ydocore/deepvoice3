@@ -52,10 +52,12 @@ matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 import sys
 import os
-from tensorboardX import SummaryWriter
+#from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from matplotlib import cm
 from warnings import warn
 from hparams import hparams, hparams_debug_string
+from torchviz import make_dot, make_dot_from_trace
 
 import time
 global_collect = 0
@@ -691,6 +693,8 @@ def train(device, model, data_loader, optimizer, writer,
     current_lr = init_lr
 
     binary_criterion = nn.BCELoss()
+    l1 = nn.L1Loss()
+    l2 = nn.MSELoss()
 
     assert train_seq2seq or train_postnet
 
@@ -811,12 +815,10 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
                     priority_w=hparams.priority_freq_weight)
                 linear_loss = (1 - w) * linear_l1_loss + w * linear_binary_div
                 rw = int(r * hparams.world_upsample)
-                l1 = nn.L1Loss()
-                cross = nn.BCELoss()
                 f0_loss = l1(f0_outputs[:,:-rw],f0[:,rw:])
                 sp_loss = l1(sp_outputs[:,:-rw,:],sp[:,rw:,:])
                 ap_loss = l1(ap_outputs[:,:-rw,:],ap[:,rw:,:])
-                voiced_loss = cross(vo_hat[:,:-rw],voiced[:,rw:])
+                voiced_loss = binary_criterion(vo_hat[:,:-rw],voiced[:,rw:])
 
             # Combine losses
             if train_seq2seq and train_postnet:
