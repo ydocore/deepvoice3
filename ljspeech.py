@@ -75,7 +75,7 @@ def _process_utterance(out_dir, index, wav_path, text):
     #world parameters
     f0,sp,ap = audio.world(wav,hparams.sample_rate)
     f0 = (f0 / hparams.f0_norm).astype(np.float32)
-    sp = (sp / np.abs(sp).max()).astype(np.float32)
+    sp = audio._normalize(sp).astype(np.float32)
     ap = ap.astype(np.float32)
     world_frames = f0.shape[0]
     

@@ -5,7 +5,7 @@ usage: load_test.py <in_dir> <out_dir>
 
 from docopt import docopt
 import numpy as np
-from train import LinearSpecDataSource, SpDataSource, MelSpecDataSource,FileSourceDataset
+from train import LinearSpecDataSource, SpDataSource, ApDataSource, MelSpecDataSource,FileSourceDataset
 import os
 from os.path import join
 from tqdm import tqdm
@@ -20,11 +20,12 @@ if __name__ == '__main__':
 
     speaker_id = None
     SP = FileSourceDataset(SpDataSource(in_dir, speaker_id))
-    for i, sp in tqdm(enumerate(SP,1)):
+    AP = FileSourceDataset(ApDataSource("./data_world/", speaker_id))
+    for i, (sp, ap) in tqdm(enumerate(zip(SP,AP),1)):
         log_sp = audio._amp_to_db(np.abs(sp)) -10
         log_sp = audio._normalize(log_sp)
-        sp_filename = 'ljspeech-sp-%05d.npy' % i
-        np.save(os.path.join(out_dir, sp_filename), log_sp, allow_pickle=False)
+        #sp_filename = 'ljspeech-sp-%05d.npy' % i
+        #np.save(os.path.join(out_dir, sp_filename), log_sp, allow_pickle=False)
 
     '''
     os.makedirs(out_dir, exist_ok=True)
