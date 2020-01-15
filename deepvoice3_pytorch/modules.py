@@ -31,26 +31,22 @@ def sinusoidal_encode(x, w):
     return y
 
 
-class SinusoidalEncoding(nn.Embedding):
+class SinusoidalEncoding(nn.Module):
 
     def __init__(self, num_embeddings, embedding_dim,
                  *args, **kwargs):
-        super(SinusoidalEncoding, self).__init__(num_embeddings, embedding_dim,
-                                                 padding_idx=0,
-                                                 *args, **kwargs)
-        self.weight.data = position_encoding_init(num_embeddings, embedding_dim,
+        super(SinusoidalEncoding, self).__init__()
+        self.register_buffer("pos_table",position_encoding_init(num_embeddings, embedding_dim,
                                                   position_rate=1.0,
-                                                  sinusoidal=False)
+                                                  sinusoidal=False))
 
     def forward(self, x, w=1.0):
         isscaler = np.isscalar(w)
-        assert self.padding_idx is not None
 
         if isscaler or w.size(0) == 1:
-            weight = sinusoidal_encode(self.weight, w)
-            return F.embedding(
-                x, weight, self.padding_idx, self.max_norm,
-                self.norm_type, self.scale_grad_by_freq, self.sparse)
+            weight = sinusoidal_encode(self.pos_table, w)
+            ws = weight.size()
+            return weight.unsqueeze(0).expand(x.size(0),ws[0],ws[1])
         else:
             # TODO: cannot simply apply for batch
             # better to implement efficient function

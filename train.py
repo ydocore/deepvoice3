@@ -335,7 +335,6 @@ def collate_fn(batch):
     max_target_len = max(target_lengths)
 
     world_lengths = [len(x[3]) for x in batch]
-    #max_world_len = int(max_target_len*2.5)
 
     if max_target_len % r != 0:
         max_target_len += r - max_target_len % r
@@ -343,11 +342,6 @@ def collate_fn(batch):
     if max_target_len % downsample_step != 0:
         max_target_len += downsample_step - max_target_len % downsample_step
         assert max_target_len % downsample_step == 0
-    '''
-    if max_world_len % r != 0:
-        max_world_len += r - max_world_len % r
-        assert max_world_len % r == 0
-    '''
 
     # Set 0 for zero beginning padding
     # imitates initial decoder states
@@ -514,7 +508,7 @@ def save_states(global_epoch, writer, mel_outputs, linear_outputs, attn, mel, y,
             os.makedirs(alignment_dir, exist_ok=True)
             path = join(alignment_dir, "epoch{:09d}_layer_{}_alignment.png".format(
                 global_epoch, i + 1))
-            save_alignment(path, alignment)
+            #save_alignment(path, alignment)
 
         # Save averaged alignment
         '''
@@ -785,7 +779,7 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
                     input_lengths=input_lengths)
                 # reshape
                 mel_outputs = mel_outputs.view(len(mel), -1, mel.size(-1))
-                linear_outputs = None
+                linear_outputs, f0_outputs, sp_outputs, ap_outputs, vo_hat = None, None, None, None, None
             elif train_postnet:
                 assert speaker_ids is None
                 linear_outputs = model.postnet(mel)
@@ -837,6 +831,13 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
                 attn_loss = (attn * soft_mask).mean()
                 loss += attn_loss
 
+            if global_epoch == 0 and global_step == 0:
+                save_states(
+                    global_epoch, writer, mel_outputs, linear_outputs, attn,
+                    mel, y, input_lengths, f0_outputs, sp_outputs, ap_outputs, f0, sp, ap, checkpoint_dir)
+
+            #TODO:attention→Encoderの勾配をattentionのLayer数で正規化するコーディングをする
+
 
 
             # Update
@@ -887,7 +888,7 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
                 model, optimizer, global_step, checkpoint_dir, global_epoch,
                 train_seq2seq, train_postnet)
 
-        if global_epoch >= 0 and global_epoch % hparams.eval_interval == 0:
+        if global_epoch >= 600 and global_epoch % hparams.eval_interval == 0:
             eval_model(global_epoch, writer, device, model, checkpoint_dir, ismultispeaker)
 
         averaged_loss = running_loss / (len(data_loader))
@@ -1075,6 +1076,11 @@ if __name__ == "__main__":
     F0 = FileSourceDataset(F0DataSource(data_root, speaker_id))
     SP = FileSourceDataset(SpDataSource(data_root, speaker_id))
     AP = FileSourceDataset(ApDataSource(data_root,speaker_id))
+    if not train_postnet:
+        Y = [np.zeros((1,1)),]*13056
+        F0 = [np.zeros(1),]*13056
+        SP = [np.zeros((1,1)),]*13056
+        AP = [np.zeros((1,1)),]*13056
 
 
     # Prepare sampler

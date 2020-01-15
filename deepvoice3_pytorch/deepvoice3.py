@@ -25,10 +25,10 @@ class Encoder(nn.Module):
     def __init__(self, n_vocab, embed_dim, n_speakers, speaker_embed_dim,
                  padding_idx=None, embedding_weight_std=0.1,
                  convolutions=((64, 5, .1),) * 7,
-                 max_positions=512, dropout=0.1, apply_grad_scaling=False):
+                 max_positions=512, dropout=0.1, apply_grad_scaling=True, num_attention_layers=4):
         super(Encoder, self).__init__()
         self.dropout = dropout
-        self.num_attention_layers = None
+        self.num_attention_layers = num_attention_layers
         self.apply_grad_scaling = apply_grad_scaling
 
         # Text input embeddings
@@ -46,15 +46,8 @@ class Encoder(nn.Module):
         self.convolutions = nn.ModuleList()
         std_mul = 4.0
         self.pre_linear = Linear(in_channels,convolutions[0][0])
+        in_channels = convolutions[0][0]
         for idx, (out_channels, kernel_size, dilation) in enumerate(convolutions):
-            if in_channels != out_channels:
-                # Conv1d + ReLU
-                '''
-                    Conv1d(in_channels, out_channels, kernel_size=1, padding=0,
-                           dilation=1, std_mul=std_mul))
-                '''
-                #self.convolutions.append(nn.ReLU(inplace=True))
-                in_channels = out_channels
             if idx+1 == len(convolutions):
                 std_mul= 1.0
             self.convolutions.append(
@@ -63,11 +56,6 @@ class Encoder(nn.Module):
                           dilation=dilation, dropout=dropout, std_mul=std_mul,
                           residual=True))
             in_channels = out_channels
-            #std_mul = 4.0
-        # Last 1x1 convolution
-        #self.convolutions.append(Conv1d(in_channels, embed_dim, kernel_size=1,
-        #                                padding=0, dilation=1, std_mul=std_mul,
-        #                                dropout=dropout))
         self.linear = Linear(in_channels,embed_dim)#original
 
     def forward(self, text_sequences, text_positions=None, lengths=None,
@@ -105,7 +93,7 @@ class Encoder(nn.Module):
 
         # scale gradients (this only affects backward, not forward)
         if self.apply_grad_scaling and self.num_attention_layers is not None:
-            keys = GradMultiply.apply(keys, 1.0 / (2.0 * self.num_attention_layers))
+            keys = GradMultiply.apply(keys, 1.0 / (self.num_attention_layers))
 
         # add output to input embedding for attention
         values = (keys + input_embedding) * math.sqrt(0.5)
@@ -124,7 +112,7 @@ class AttentionLayer(nn.Module):
             # According to the DeepVoice3 paper, intiailize weights to same values
             # TODO: Does this really work well? not sure..
             if conv_channels == embed_dim:
-                self.key_projection.weight.data = self.query_projection.weight.data.clone()
+                self.key_projection.load_state_dict(self.query_projection.state_dict())
         else:
             self.key_projection = None
         if value_projection:
@@ -141,7 +129,7 @@ class AttentionLayer(nn.Module):
         keys, values = encoder_out
         residual = query
         if self.value_projection is not None:
-            values = self.value_projection(values)
+           values = self.value_projection(values)
         # TODO: yes, this is inefficient
         if self.key_projection is not None:
             keys = self.key_projection(keys.transpose(1, 2)).transpose(1, 2)
@@ -154,22 +142,6 @@ class AttentionLayer(nn.Module):
         if mask is not None:
             mask = mask.view(query.size(0), 1, -1)
             x.data.masked_fill_(mask, mask_value)
-            '''
-            mot = x.data.new(x.size(0)).int().zero_()
-            for step in range(x.size(1)):
-                for bat in range(x.size(0)):
-                    backward = mot[bat] - self.window_backward
-                    if backward > 0:
-                        x[bat,step,:backward] = mask_value
-                    ahead = mot[bat] + self.window_ahead
-                    #import pdb; pdb.set_trace()
-                    if ahead < x.size(-1):
-                        x[bat,step,ahead:] = mask_value
-                mot = x[:,step,:].argmax(1)
-            '''
-
-
-
 
         if last_attended is not None:
             backward = last_attended - self.window_backward
@@ -181,9 +153,9 @@ class AttentionLayer(nn.Module):
 
         # softmax over last dim
         # (B, tgt_len, src_len)
-        sz = x.size()
-        x = F.softmax(x.view(sz[0] * sz[1], sz[2]), dim=1)
-        x = x.view(sz)
+        #sz = x.size()
+        x = F.softmax(x, dim=2)#.view(sz[0] * sz[1], sz[2]), dim=1)
+        #x = x.view(sz)
         attn_scores = x
 
         x = F.dropout(x, p=self.dropout, training=self.training)
@@ -307,6 +279,7 @@ class Decoder(nn.Module):
                                 dropout=dropout)
 
         self.last_fc = Linear(in_channels,in_dim*r)
+        self.gate_fc = Linear(in_channels,in_dim*r)
 
         # Mel-spectrogram (before sigmoid) -> Done binary flag
         self.fc = Linear(in_channels, 1)
@@ -348,8 +321,7 @@ class Decoder(nn.Module):
                 w = self.key_position_rate * torch.sigmoid(self.speaker_proj1(speaker_embed)).view(-1)
             else:
                 w = self.key_position_rate
-            text_pos_embed = self.embed_keys_positions(text_positions, w)
-            keys = keys + text_pos_embed
+            keys = keys + self.embed_keys_positions(text_positions, w)[:,:text_positions.size(-1),:]
         if frame_positions is not None:
             #w = 1 #self.query_position_rate
             if self.speaker_proj2 is not None:
@@ -371,8 +343,9 @@ class Decoder(nn.Module):
         #x = x.transpose(1, 2)
 
         # Prenet
-        for f in self.preattention:
-            x = F.dropout(x, p=self.dropout, training=self.training)
+        for i, f in enumerate(self.preattention):
+            if i > 0:
+                x = F.dropout(x, p=self.dropout, training=self.training)
             if speaker_embed_btc is not None:
                 #speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.dropout, training=self.training)
                 x = x + F.softsign(self.speaker_fc1(speaker_embed_btc))
@@ -393,7 +366,7 @@ class Decoder(nn.Module):
                 assert isinstance(f, Conv1dGLU)
                 # (B x T x C)
                 x = x.transpose(1, 2)
-                x = x if frame_positions is None else x + frame_pos_embed
+                x = x if frame_positions is None else x + frame_pos_embed[:,:frame_positions.size(-1),:]
                 x, alignment = attention(x, (keys, values), mask=mask)
                 # (T x B x C)
                 x = x.transpose(1, 2)
@@ -411,9 +384,10 @@ class Decoder(nn.Module):
         # Back to B x T x C
         x = x.transpose(1, 2)
         out = self.last_fc(x)
+        gate = self.gate_fc(x)
 
         # project to mel-spectorgram
-        outputs = torch.sigmoid(out)
+        outputs = torch.sigmoid(gate) * out
         outputs = outputs.view(outputs.size(0),-1,self.in_dim)
 
         # Done flag
@@ -434,7 +408,7 @@ class Decoder(nn.Module):
         if self.speaker_proj1 is not None:
             w = w * torch.sigmoid(self.speaker_proj1(speaker_embed)).view(-1)
         text_pos_embed = self.embed_keys_positions(text_positions, w)
-        keys = keys + text_pos_embed
+        keys = keys + text_pos_embed[:,:text_positions.size(-1),:]
 
         # transpose only once to speed up attention layers
         keys = keys.transpose(1, 2).contiguous()
@@ -507,7 +481,7 @@ class Decoder(nn.Module):
                 # attention
                 if attention is not None:
                     assert isinstance(f, Conv1dGLU)
-                    x = x + frame_pos_embed
+                    x = x + frame_pos_embed[:,frame_pos.size(-1),:]
                     x, alignment = attention(x, (keys, values),
                                              last_attended=last_attended[idx])
                     if self.force_monotonic_attention[idx]:

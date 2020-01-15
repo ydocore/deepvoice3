@@ -44,7 +44,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
         dropout=dropout, max_positions=max_positions,
         embedding_weight_std=embedding_weight_std,
         # (channels, kernel_size, dilation)
-        convolutions=[(h, k, 1),]*7,#[(h,k,1),(h,k,1),(h,k,3),(h,k,3),(h,k,9),(h,k,9),(h,k,27)]
+        convolutions=[(h, k, 1),]*7,num_attention_layers=6#TODO:hard codeなのでいろいろ直す
     )
 
     h = decoder_channels

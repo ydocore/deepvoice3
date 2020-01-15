@@ -42,10 +42,10 @@ def spectrogram(y):
 
 def inv_spectrogram(spectrogram):
     '''Converts spectrogram to waveform using librosa'''
-    #S = _db_to_amp(_denormalize(spectrogram) + hparams.spec_ref_level_db)  # Convert back to linear
-    S = librosa.db_to_amplitude(_denormalize(spectrogram) + hparams.spec_ref_level_db)
+    S = _db_to_amp(_denormalize(spectrogram) + hparams.spec_ref_level_db)  # Convert back to linear
+    #S = librosa.db_to_amplitude(_denormalize(spectrogram) + hparams.spec_ref_level_db)
     D = librosa.griffinlim(S ** hparams.power,hop_length=hparams.hop_size,win_length=hparams.fft_wsize)
-    return D
+    return inv_preemphasis(D)
 
 
 def melspectrogram(y):

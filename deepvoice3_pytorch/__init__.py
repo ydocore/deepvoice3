@@ -85,7 +85,7 @@ class MultiSpeakerTTSModel(nn.Module):
 
         # Prepare postnet inputs
         if self.use_decoder_state_for_postnet_input:
-            postnet_inputs = decoder_states#.view(B, mel_outputs.size(1), -1)
+            postnet_inputs = decoder_states.detach() #WORLDが悪さしてるかもなので，Converterに勾配情報を伝播させない
         else:
             postnet_inputs = mel_outputs
 

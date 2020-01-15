@@ -35,12 +35,12 @@ hparams = hparam_tf.hparam.HParams(
     fmin=125,
     fmax=7600,
     fft_size=4096, #origin is 1024
-    fft_wsize=1024,
-    hop_size=256, #fft_wsize/4
+    fft_wsize=1102,
+    hop_size=275, #fft_wsize/4
     sample_rate=22050, #origin is 22050
     preemphasis=0.97,
-    min_level_db=-80,
-    spec_ref_level_db=50,
+    min_level_db=-100,
+    spec_ref_level_db=10,
     sp_ref_level_db=20,
     f0_norm=400,
     world_upsample=2.5,
@@ -63,7 +63,7 @@ hparams = hparam_tf.hparam.HParams(
     # Maximum number of input text length
     # try setting larger value if you want to give very long text input
     max_positions=2048,
-    dropout=1-0.95,
+    dropout=1-0.99,
     kernel_size=5,
     text_embed_dim=256, #ori 128
     encoder_channels=128,
@@ -73,7 +73,7 @@ hparams = hparam_tf.hparam.HParams(
     converter_channels=256,
     query_position_rate=1.0,
     # can be computed by `compute_timestamp_ratio.py`.
-    key_position_rate=1.226,  # 2.37 for jsut
+    key_position_rate=1.14,  # 2.37 for jsut
     position_weight=1.0,
     key_projection=True,
     value_projection=True,
@@ -106,16 +106,16 @@ hparams = hparam_tf.hparam.HParams(
     adam_beta2=0.999,
     adam_eps=1e-8,
     amsgrad=False,
-    initial_learning_rate=1e-3,
+    initial_learning_rate=5e-4,
     lr_schedule="noam_learning_rate_decay",
     lr_schedule_kwargs={},
     nepochs=601,
     weight_decay=0.0,
-    max_clip=100.0,
+    max_clip=50.0,
     clip_thresh=5.0,
 
     # Save
-    checkpoint_interval=25,  #test
+    checkpoint_interval=10,  #test
     eval_interval=25,
     save_optimizer_state=True,
 
