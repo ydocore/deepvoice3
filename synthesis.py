@@ -11,7 +11,7 @@ options:
     --checkpoint-postnet=<path>       Load postnet model from checkpoint path.
     --file-name-suffix=<s>            File name suffix [default: ].
     --max-decoder-steps=<N>           Max decoder steps [default: 500].
-    --replace_pronunciation_prob=<N>  Prob [default: 0.0].
+    --replace_pronunciation_prob=<N>  Prob [default: 1.0].
     --speaker_id=<id>                 Speaker ID (for multi-speaker model).
     --output-html                     Output html for blog post.
     -h, --help               Show help message.
@@ -27,7 +27,8 @@ import audio
 import torch
 import numpy as np
 import nltk
-nltk.download('punkt')
+import time
+#nltk.download('punkt')
 
 # The deepvoice3 model
 from deepvoice3_pytorch import frontend
@@ -68,7 +69,7 @@ def tts(model, text, p=0, speaker_id=None, fast=False):
     alignment = alignments[0].cpu().data.numpy()
     mel = mel_outputs[0].cpu().data.numpy()
     mel = audio._denormalize(mel)
-    f0 = f0s[0].cpu().data.numpy()
+    f0 = f0s[0].cpu().data.numpy() * 400
     sp = sps[0].cpu().data.numpy()
     ap = aps[0].cpu().data.numpy()
 
@@ -138,20 +139,25 @@ if __name__ == "__main__":
     os.makedirs(dst_dir, exist_ok=True)
     with open(text_list_file_path, "rb") as f:
         lines = f.readlines()
-        for idx, line in enumerate(lines):
+        for idx, line in enumerate(lines, 1):
             text = line.decode("utf-8")[:-1]
             words = nltk.word_tokenize(text)
+            start = time.time()
             waveform, alignments, _, _, world = tts(
-                model, text, p=1.0, speaker_id=speaker_id, fast=True)#p=replace_pronunciation_prob
+                model, text, p=replace_pronunciation_prob, speaker_id=speaker_id, fast=True)
+            end = time.time() - start
             dst_wav_path = join(dst_dir, "{}_{}{}.wav".format(
                 idx, checkpoint_name, file_name_suffix))
-            for i, alignment in enumerate(alignments):
+            dst_world_path = join(dst_dir, "{}_{}{}_world.wav".format(
+                idx, checkpoint_name, file_name_suffix))
+            for i, alignment in enumerate(alignments, 1):
                 dst_alignment_path = join(
                     dst_dir, "{}_{}{}_alignment_layer_{}.png".format(idx, checkpoint_name,
                                                         file_name_suffix,i))
                 plot_alignment(alignment.T, dst_alignment_path,
                                info="{}, {}, layer_{}".format(hparams.builder, basename(checkpoint_path),i))
             audio.save_wav(waveform, dst_wav_path)
+            audio.save_wav(world, dst_world_path)
             name = splitext(basename(text_list_file_path))[0]
             if output_html:
                 print("""
@@ -169,7 +175,7 @@ Your browser does not support the audio element.
                              hparams.builder, name, basename(dst_wav_path),
                              hparams.builder, name, basename(dst_alignment_path)))
             else:
-                print(idx, ": {}\n ({} chars, {} words)".format(text, len(text), len(words)))
+                print(idx, ": {}\n ({} chars, {} words) generate time:{}s".format(text, len(text), len(words), end))
 
     print("Finished! Check out {} for generated audio samples.".format(dst_dir))
     sys.exit(0)

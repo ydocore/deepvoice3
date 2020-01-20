@@ -65,7 +65,7 @@ class GradMultiply(torch.autograd.Function):
     def forward(ctx, x, scale):
         ctx.scale = scale
         res = x.new(x)
-        ctx.mark_shared_storage((x, res))
+        #ctx.mark_shared_storage((x, res))
         return res
 
     @staticmethod
@@ -73,12 +73,12 @@ class GradMultiply(torch.autograd.Function):
         return grad * ctx.scale, None
 
 
-def Linear(in_features, out_features, dropout=0):
+def Linear(in_features, out_features, dim=None):
     """Weight-normalized Linear layer (input: N x T x C)"""
     m = nn.Linear(in_features, out_features)
-    m.weight.data.normal_(mean=0, std=math.sqrt((1.0-dropout) / in_features)) #1-dropout > 1
+    m.weight.data.normal_(mean=0, std=0.05) #1-dropout > 1
     m.bias.data.zero_()
-    return nn.utils.weight_norm(m)
+    return nn.utils.weight_norm(m,dim=dim)
 
 def Linear_relu(in_features, out_features, dropout=0):
     """Weight-normalized Linear layer (input: N x T x C)"""
@@ -98,9 +98,9 @@ def Conv1d(in_channels, out_channels, kernel_size, dropout=0, std_mul=4.0, **kwa
     from .conv import Conv1d
     m = Conv1d(in_channels, out_channels, kernel_size, **kwargs)
     std = math.sqrt((std_mul*(1.0-dropout)) / (m.kernel_size[0] * in_channels))#std_mul*(1-dropout) > 1
-    m.weight.data.normal_(mean=0, std=(1.0 / (m.kernel_size[0] * in_channels)))
+    m.weight.data.normal_(mean=0, std=0.05)
     m.bias.data.zero_()
-    return nn.utils.weight_norm(m)
+    return nn.utils.weight_norm(m,dim=None)
 
 
 def ConvTranspose1d(in_channels, out_channels, kernel_size, dropout=0,

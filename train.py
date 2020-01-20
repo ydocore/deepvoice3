@@ -57,10 +57,6 @@ from torch.utils.tensorboard import SummaryWriter
 from matplotlib import cm
 from warnings import warn
 from hparams import hparams, hparams_debug_string
-from torchviz import make_dot, make_dot_from_trace
-
-import time
-global_collect = 0
 
 
 global_step = 0
@@ -451,19 +447,19 @@ def eval_model(global_epoch, writer, device, model, checkpoint_dir, ismultispeak
     for speaker_id in speaker_ids:
         speaker_str = "multispeaker{}".format(speaker_id) if speaker_id is not None else "single"
 
-        for idx, text in enumerate(texts):
+        for idx, text in enumerate(texts, 1):
             signal, alignments, _, mel, world = synthesis.tts(
-                model_eval, text, p=0, speaker_id=speaker_id, fast=True)
+                model_eval, text, p=1, speaker_id=speaker_id, fast=True)
             signal /= np.max(np.abs(signal))
 
             # Alignment
-            for i, alignment in enumerate(alignments):
-                alignment_dir = join(eval_output_dir, "alignment_layer{}".format(i + 1))
+            for i, alignment in enumerate(alignments, 1):
+                alignment_dir = join(eval_output_dir, "alignment_layer{}".format(i))
                 os.makedirs(alignment_dir, exist_ok=True)
                 path = join(alignment_dir, "epoch{:09d}_text{}_{}_layer{}_alignment.png".format(
-                    global_epoch, idx, speaker_str, i+1))
+                    global_epoch, idx, speaker_str, i))
                 save_alignment(path, alignment)
-                tag = "eval_layer_{}_alignment_{}_{}".format(i+1,idx, speaker_str)
+                tag = "eval_text_{}_alignment_layer{}_{}".format(idx, i, speaker_str)
                 writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1)) * 255).T, global_epoch)
 
             # Mel
@@ -508,7 +504,7 @@ def save_states(global_epoch, writer, mel_outputs, linear_outputs, attn, mel, y,
             os.makedirs(alignment_dir, exist_ok=True)
             path = join(alignment_dir, "epoch{:09d}_layer_{}_alignment.png".format(
                 global_epoch, i + 1))
-            #save_alignment(path, alignment)
+            save_alignment(path, alignment)
 
         # Save averaged alignment
         '''
@@ -835,9 +831,6 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
                 save_states(
                     global_epoch, writer, mel_outputs, linear_outputs, attn,
                     mel, y, input_lengths, f0_outputs, sp_outputs, ap_outputs, f0, sp, ap, checkpoint_dir)
-
-            #TODO:attention→Encoderの勾配をattentionのLayer数で正規化するコーディングをする
-
 
 
             # Update

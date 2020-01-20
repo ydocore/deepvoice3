@@ -66,10 +66,12 @@ def convert_to_ascii(text):
 def add_punctuation(text):
     if len(text) == 0:
         return text
+    '''
     if text[-1] not in '!,.:;?':
         text = text + '%.'  # without this decoder is confused when to output EOS
         text = re.sub(", |:|;|,","%",text)
-    elif text[-1] == ".":
+    '''
+    if text[-1] == ".":
         #import pdb; pdb.set_trace()
         text = text.replace(".","%.")
     elif text[-1] == "?":

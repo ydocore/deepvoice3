@@ -106,9 +106,9 @@ class AttentionLayer(nn.Module):
                  window_ahead=3, window_backward=1,
                  key_projection=True, value_projection=True):
         super(AttentionLayer, self).__init__()
-        self.query_projection = Linear(conv_channels, att_hid)
+        self.query_projection = Linear(conv_channels, att_hid,dim=0)
         if key_projection:
-            self.key_projection = Linear(embed_dim, att_hid)
+            self.key_projection = Linear(embed_dim, att_hid,dim=0)
             # According to the DeepVoice3 paper, intiailize weights to same values
             # TODO: Does this really work well? not sure..
             if conv_channels == embed_dim:
@@ -243,7 +243,7 @@ class Decoder(nn.Module):
             '''
         in_channels = in_dim*r
         for _, out_channels in preattention:
-            self.preattention.append(Linear_relu(in_channels,out_channels))
+            self.preattention.append(Linear(in_channels,out_channels))
             self.preattention.append(nn.ReLU(inplace=True))
             in_channels = out_channels
 
@@ -403,10 +403,11 @@ class Decoder(nn.Module):
         B = keys.size(0)
 
         # position encodings
-        w = self.key_position_rate
         # TODO: may be useful to have projection per attention layer
         if self.speaker_proj1 is not None:
             w = w * torch.sigmoid(self.speaker_proj1(speaker_embed)).view(-1)
+        else:
+            w = self.key_position_rate
         text_pos_embed = self.embed_keys_positions(text_positions, w)
         keys = keys + text_pos_embed[:,:text_positions.size(-1),:]
 
@@ -481,7 +482,7 @@ class Decoder(nn.Module):
                 # attention
                 if attention is not None:
                     assert isinstance(f, Conv1dGLU)
-                    x = x + frame_pos_embed[:,frame_pos.size(-1),:]
+                    x = x + frame_pos_embed[:,frame_pos[0],:]
                     x, alignment = attention(x, (keys, values),
                                              last_attended=last_attended[idx])
                     if self.force_monotonic_attention[idx]:
@@ -500,10 +501,11 @@ class Decoder(nn.Module):
 
             decoder_state = x
             out = self.last_fc(x)
-            #ave_alignment = ave_alignment.div_(num_attention_layers)
+            gate = self.gate_fc(x)
 
-            # Ooutput & done flag predictions
-            output = torch.sigmoid(out)
+            #output & done flag predictions
+            output = torch.sigmoid(gate) * out
+            #output = output.view(output.size(0), -1, self.in_dim)
             done = torch.sigmoid(self.fc(x))
 
             decoder_states += [decoder_state]
