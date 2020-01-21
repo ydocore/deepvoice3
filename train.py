@@ -106,7 +106,7 @@ class TextDataSource(FileDataSource):
         self.speaker_id = speaker_id
 
     def collect_files(self):
-        meta = join(self.data_root, "train.txt") #元はtrain.txt
+        meta = join(self.data_root, "train.txt") 
         with open(meta, "rb") as f:
             lines = f.readlines()
         l = lines[0].decode("utf-8").split("|")
@@ -282,46 +282,11 @@ class PyTorchDataset(object):
         return len(self.X)
 
 
-def sequence_mask(sequence_length, max_len=None):
-    if max_len is None:
-        max_len = sequence_length.data.max()
-    batch_size = sequence_length.size(0)
-    seq_range = torch.arange(0, max_len).long()
-    seq_range_expand = seq_range.unsqueeze(0).expand(batch_size, max_len)
-    if sequence_length.is_cuda:
-        seq_range_expand = seq_range_expand.cuda()
-    seq_length_expand = sequence_length.unsqueeze(1) \
-        .expand_as(seq_range_expand)
-    return (seq_range_expand < seq_length_expand).float()
-
-
-class MaskedL1Loss(nn.Module):
-    def __init__(self):
-        super(MaskedL1Loss, self).__init__()
-        self.criterion = nn.L1Loss(reduction="sum")
-
-    def forward(self, input, target, lengths=None, mask=None, max_len=None):
-        if lengths is None and mask is None:
-            raise RuntimeError("Should provide either lengths or mask")
-
-        # (B, T, 1)
-        if mask is None:
-            mask = sequence_mask(lengths, max_len).unsqueeze(-1)
-
-        # (B, T, D)
-        import pdb; pdb.set_trace()
-        mask_ = mask.expand_as(input)
-        loss = self.criterion(input * mask_, target * mask_)
-        return loss / mask_.sum()
-
-
 def collate_fn(batch):
     """Create batch"""
     r = hparams.outputs_per_step
     downsample_step = hparams.downsample_step
     multi_speaker = len(batch[0]) == 9
-
-    #start = time.time()
 
     # Lengths
     input_lengths = [len(x[0]) for x in batch]
@@ -335,6 +300,7 @@ def collate_fn(batch):
     if max_target_len % r != 0:
         max_target_len += r - max_target_len % r
         assert max_target_len % r == 0
+        #TODO:downsample_step all delete!
     if max_target_len % downsample_step != 0:
         max_target_len += downsample_step - max_target_len % downsample_step
         assert max_target_len % downsample_step == 0
@@ -398,9 +364,6 @@ def collate_fn(batch):
     else:
         speaker_ids = None
 
-    #end = time.time() - start
-    #print('collate-time:{0}'.format(end))
-
     return x_batch, input_lengths, mel_batch, y_batch, \
         (text_positions, frame_positions), done, target_lengths, speaker_ids, \
          f0_batch, sp_batch, ap_batch, voiced_batch, world_lengths
@@ -425,12 +388,12 @@ def prepare_spec_image(spectrogram):
 def eval_model(global_epoch, writer, device, model, checkpoint_dir, ismultispeaker):
     # harded coded
     texts = [
-        "AND DEBTORS MIGHT PRACTICALLY HAVE AS MUCH AS THEY LIKED%IF THEY COULD ONLY PAY FOR IT%.",
-        "THERE'S A WAY TO MEASURE THE ACUTE EMOTIONAL INTELLIGENCE THAT HAS NEVER GONE OUT OF STYLE%.",
-        "PRESIDENT TRUMP MET WITH OTHER LEADERS AT THE GROUP OF 20 CONFERENCE%.",
-        "GENERATIVE ADVERSARIAL NETWORK OR VARIATIONAL AUTO ENCODER%.",
-        "PLEASE CALL STELLA%.",
-        "SOME HAVE ACCEPTED THIS AS A MIRACLE WITHOUT ANY PHYSICAL EXPLANATION%.",
+        "And debtors might practically have as much as they liked%if they could only pay for it.",
+        "There's a way to measure the acute emotional intelligence that has never gone out of style.",
+        "President trump met with other leaders at the group of 20 conference.",
+        "Generative adversarial network or variational auto encoder.",
+        "Please call stella.",
+        "Some have accepted this as a miracle without any physical explanation.",
     ]
     import synthesis
     synthesis._frontend = _frontend
@@ -505,18 +468,6 @@ def save_states(global_epoch, writer, mel_outputs, linear_outputs, attn, mel, y,
             path = join(alignment_dir, "epoch{:09d}_layer_{}_alignment.png".format(
                 global_epoch, i + 1))
             save_alignment(path, alignment)
-
-        # Save averaged alignment
-        '''
-        alignment_dir = join(checkpoint_dir, "alignment_ave")
-        os.makedirs(alignment_dir, exist_ok=True)
-        path = join(alignment_dir, "epoch{:09d}_alignment.png".format(global_epoch))
-        alignment = attn.mean(0)[idx].cpu().data.numpy()
-        save_alignment(path, alignment)
-
-        tag = "averaged_alignment"
-        writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1)) * 255).T, global_epoch)
-        '''
 
     # Predicted mel spectrogram
     if mel_outputs is not None:
@@ -607,70 +558,6 @@ def save_states(global_epoch, writer, mel_outputs, linear_outputs, attn, mel, y,
 def logit(x, eps=1e-8):
     return torch.log(x + eps) - torch.log(1 - x + eps)
 
-
-def masked_mean(y, mask):
-    # (B, T, D)
-    mask_ = mask.expand_as(y)
-    return (y * mask_).sum() / mask_.sum()
-
-
-def spec_loss(y_hat, y, mask, priority_bin=None, priority_w=0):
-    masked_l1 = MaskedL1Loss()
-    l1 = nn.L1Loss()
-
-    w = hparams.masked_loss_weight
-
-    # L1 loss
-    if w > 0:
-        assert mask is not None
-        l1_loss = w * masked_l1(y_hat, y, mask=mask) + (1 - w) * l1(y_hat, y)
-    else:
-        assert mask is None
-        l1_loss = l1(y_hat, y)
-
-    # Priority L1 loss
-    if priority_bin is not None and priority_w > 0:
-        if w > 0:
-            priority_loss = w * masked_l1(
-                y_hat[:, :, :priority_bin], y[:, :, :priority_bin], mask=mask) \
-                + (1 - w) * l1(y_hat[:, :, :priority_bin], y[:, :, :priority_bin])
-        else:
-            priority_loss = l1(y_hat[:, :, :priority_bin], y[:, :, :priority_bin])
-        l1_loss = (1 - priority_w) * l1_loss + priority_w * priority_loss
-
-    # Binary divergence loss
-    if hparams.binary_divergence_weight <= 0:
-        binary_div = y.data.new(1).zero_()
-    else:
-        y_hat_logits = logit(y_hat)
-        z = -y * y_hat_logits + torch.log1p(torch.exp(y_hat_logits))
-        if w > 0:
-            binary_div = w * masked_mean(z, mask) + (1 - w) * z.mean()
-        else:
-            binary_div = z.mean()
-
-    return l1_loss, binary_div
-
-
-@jit(nopython=True)
-def guided_attention(N, max_N, T, max_T, g):
-    W = np.zeros((max_N, max_T), dtype=np.float32)
-    for n in range(N):
-        for t in range(T):
-            W[n, t] = 1 - np.exp(-(n / N - t / T)**2 / (2 * g * g))
-    return W
-
-
-def guided_attentions(input_lengths, target_lengths, max_target_len, g=0.2):
-    B = len(input_lengths)
-    max_input_len = input_lengths.max()
-    W = np.zeros((B, max_target_len, max_input_len), dtype=np.float32)
-    for b in range(B):
-        W[b] = guided_attention(input_lengths[b], max_input_len,
-                                target_lengths[b], max_target_len, g).T
-    return W
-
-
 def train(device, model, data_loader, optimizer, writer,
           init_lr=0.002,
           checkpoint_dir=None, checkpoint_interval=None, nepochs=None,
@@ -684,7 +571,6 @@ def train(device, model, data_loader, optimizer, writer,
 
     binary_criterion = nn.BCELoss()
     l1 = nn.L1Loss()
-    l2 = nn.MSELoss()
 
     assert train_seq2seq or train_postnet
 
@@ -742,25 +628,6 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
             target_lengths = target_lengths.to(device)
             speaker_ids = speaker_ids.to(device) if ismultispeaker else None
 
-
-            # Create mask if we use masked loss
-            if hparams.masked_loss_weight > 0:
-                # decoder output domain mask
-                decoder_target_mask = sequence_mask(
-                    target_lengths / (r * downsample_step),
-                    max_len=mel.size(1)).unsqueeze(-1)
-                if downsample_step > 1:
-                    # spectrogram-domain mask
-                    target_mask = sequence_mask(
-                        target_lengths, max_len=y.size(1)).unsqueeze(-1)
-                else:
-                    target_mask = decoder_target_mask
-                # shift mask
-                decoder_target_mask = decoder_target_mask[:, r:, :]
-                target_mask = target_mask[:, r:, :]
-            else:
-                decoder_target_mask, target_mask = None, None
-
             # Apply model
             if train_seq2seq and train_postnet:
                 mel_outputs, linear_outputs, attn, done_hat, vo_hat, f0_outputs, sp_outputs, ap_outputs= model(
@@ -788,22 +655,15 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
             # mel:
             if train_seq2seq:
                 #import pdb; pdb.set_trace()
-                mel_l1_loss, mel_binary_div = spec_loss(
-                    mel_outputs[:, :-r, :], mel[:, r:, :], decoder_target_mask)
-                mel_loss = (1 - w) * mel_l1_loss + w * mel_binary_div
+                mel_loss = l1(mel_outputs[:, :-r, :], mel[:, r:, :])
 
             # done:
             if train_seq2seq:
                 done_loss = binary_criterion(done_hat, done)
 
-            # linear: ここから直す
+            # Converter
             if train_postnet:
-                n_priority_freq = int(hparams.priority_freq / (hparams.sample_rate * 0.5) * linear_dim)
-                linear_l1_loss, linear_binary_div = spec_loss(
-                    linear_outputs[:, :-r, :], y[:, r:, :], target_mask,
-                    priority_bin=n_priority_freq,
-                    priority_w=hparams.priority_freq_weight)
-                linear_loss = (1 - w) * linear_l1_loss + w * linear_binary_div
+                linear_loss = l1(linear_outputs[:, :-r, :], y[:, r:, :])
                 rw = int(r * hparams.world_upsample)
                 f0_loss = l1(f0_outputs[:,:-rw],f0[:,rw:])
                 sp_loss = l1(sp_outputs[:,:-rw,:],sp[:,rw:,:])
@@ -817,15 +677,6 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
                 loss = mel_loss + done_loss
             elif train_postnet:
                 loss = linear_loss + f0_loss + sp_loss + ap_loss + voiced_loss
-
-            # attention
-            if train_seq2seq and hparams.use_guided_attention:
-                soft_mask = guided_attentions(input_lengths, decoder_lengths,
-                                              attn.size(-2),
-                                              g=hparams.guided_attention_sigma)
-                soft_mask = torch.from_numpy(soft_mask).to(device)
-                attn_loss = (attn * soft_mask).mean()
-                loss += attn_loss
 
             if global_epoch == 0 and global_step == 0:
                 save_states(
@@ -847,31 +698,22 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
             if train_seq2seq:
                 writer.add_scalar("done_loss", float(done_loss.item()), global_step)
                 #writer.add_scalar("mel loss", float(mel_loss.item()), global_step)
-                writer.add_scalar("mel_l1_loss", float(mel_l1_loss.item()), global_step)
+                writer.add_scalar("mel_l1_loss", float(mel_loss.item()), global_step)
                 #writer.add_scalar("mel_binary_div_loss", float(mel_binary_div.item()), global_step)
             if train_postnet:
                 #writer.add_scalar("linear_loss", float(linear_loss.item()), global_step)
-                writer.add_scalar("linear_l1_loss", float(linear_l1_loss.item()), global_step)
+                writer.add_scalar("linear_l1_loss", float(linear_loss.item()), global_step)
                 #writer.add_scalar("linear_binary_div_loss", float(linear_binary_div.item()), global_step)
                 writer.add_scalar("f0_l1_loss",float(f0_loss.item()), global_step)
                 writer.add_scalar("sp_l1_loss",float(sp_loss.item()), global_step)
                 writer.add_scalar("ap_l1_loss",float(ap_loss.item()), global_step)
                 writer.add_scalar("voiced_loss",float(voiced_loss.item()), global_step)
-            if train_seq2seq and hparams.use_guided_attention:
-                writer.add_scalar("attn_loss", float(attn_loss.item()), global_step)
             if clip_thresh > 0:
                 writer.add_scalar("gradient norm", grad_norm, global_step)
-                #writer.add_scalar("gradient value",grad_value,global_step)
             writer.add_scalar("learning rate", current_lr, global_step)
 
             global_step += 1
             running_loss += loss.item()
-
-            #end = time.time()
-            #print('for-time:{0}'.format(end-start)+'[sec], collect_time:{0}'.format(global_collect)+'[sec]')
-            #start = time.time()
-            #global_collect = 0
-
 
         if global_epoch >= 0 and global_epoch % checkpoint_interval == 0:
             save_states(

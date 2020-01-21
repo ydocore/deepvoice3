@@ -76,7 +76,7 @@ class GradMultiply(torch.autograd.Function):
 def Linear(in_features, out_features, dim=None):
     """Weight-normalized Linear layer (input: N x T x C)"""
     m = nn.Linear(in_features, out_features)
-    m.weight.data.normal_(mean=0, std=0.05) #1-dropout > 1
+    m.weight.data.normal_(mean=0, std=0.05) #conform weight normalization paper
     m.bias.data.zero_()
     return nn.utils.weight_norm(m,dim=dim)
 

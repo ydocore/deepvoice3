@@ -11,7 +11,9 @@ _arpabet = nltk.corpus.cmudict.dict()
 
 
 def _maybe_get_arpabet(word, p):
-    if word[-1] in '!,.:;?':
+    #if word contains punctuation, it cannot change phonemes.
+    #e.g. word='Printing,' cannot change, but word='Printing' can change phonemes
+    if len(word) != 0 and word[-1] in '!,.:;?':
         word = word[:-1]
         punc = ' %'
     else:

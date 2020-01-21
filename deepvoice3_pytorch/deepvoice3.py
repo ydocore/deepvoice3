@@ -110,7 +110,6 @@ class AttentionLayer(nn.Module):
         if key_projection:
             self.key_projection = Linear(embed_dim, att_hid,dim=0)
             # According to the DeepVoice3 paper, intiailize weights to same values
-            # TODO: Does this really work well? not sure..
             if conv_channels == embed_dim:
                 self.key_projection.load_state_dict(self.query_projection.state_dict())
         else:
@@ -455,15 +454,6 @@ class Decoder(nn.Module):
                     speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.dropout, training=self.training)
                     x = x + F.softsign(self.speaker_fc1(speaker_embed_btc))
                 x=f(x)
-                '''
-                if isinstance(f, Conv1dGLU):
-                    x = f.incremental_forward(x, speaker_embed)
-                else:
-                    try:
-                        x = f.incremental_forward(x)
-                    except AttributeError as e:
-                        x = f(x)
-                '''
 
             # Casual convolutions + Multi-hop attentions
             ave_alignment = None
