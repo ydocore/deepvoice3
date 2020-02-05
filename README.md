@@ -1,25 +1,11 @@
-![alt text](assets/banner.jpg)
+# Deepvoice3_pytorch Conform Original
 
-# Deepvoice3_pytorch
 
-[![PyPI](https://img.shields.io/pypi/v/deepvoice3_pytorch.svg)](https://pypi.python.org/pypi/deepvoice3_pytorch)
-[![Build Status](https://travis-ci.org/r9y9/deepvoice3_pytorch.svg?branch=master)](https://travis-ci.org/r9y9/deepvoice3_pytorch)
-[![Build status](https://ci.appveyor.com/api/projects/status/8eurjakfaofbr24k?svg=true)](https://ci.appveyor.com/project/r9y9/deepvoice3-pytorch)
-[![DOI](https://zenodo.org/badge/108992863.svg)](https://zenodo.org/badge/latestdoi/108992863)
-
-PyTorch implementation of convolutional networks-based text-to-speech synthesis models:
+This repository extends DeepVoice3 implementation of [r9y9](https://github.com/r9y9/deepvoice3_pytorch) 
 
 1. [arXiv:1710.07654](https://arxiv.org/abs/1710.07654): Deep Voice 3: Scaling Text-to-Speech with Convolutional Sequence Learning.
-2. [arXiv:1710.08969](https://arxiv.org/abs/1710.08969): Efficiently Trainable Text-to-Speech System Based on Deep Convolutional Networks with Guided Attention.
 
-Audio samples are available at https://r9y9.github.io/deepvoice3_pytorch/.
 
-## Online TTS demo
-
-Notebooks supposed to be executed on https://colab.research.google.com are available:
-
-- [DeepVoice3: Multi-speaker text-to-speech demo](https://colab.research.google.com/github/r9y9/Colaboratory/blob/master/DeepVoice3_multi_speaker_TTS_en_demo.ipynb)
-- [DeepVoice3: Single-speaker text-to-speech demo](https://colab.research.google.com/github/r9y9/Colaboratory/blob/master/DeepVoice3_single_speaker_TTS_en_demo.ipynb)
 
 ## Highlights
 
@@ -30,13 +16,6 @@ Notebooks supposed to be executed on https://colab.research.google.com are avail
 - Language-dependent frontend text processor for English and Japanese
 
 ### Samples
-
-- [Ja Step000380000 Predicted](https://soundcloud.com/user-623907374/ja-step000380000-predicted)
-- [Ja Step000370000 Predicted](https://soundcloud.com/user-623907374/ja-step000370000-predicted)
-- [Ko_single Step000410000 Predicted](https://soundcloud.com/user-623907374/ko-step000410000-predicted)
-- [Ko_single Step000400000 Predicted](https://soundcloud.com/user-623907374/ko-step000400000-predicted)
-- [Ko_multi Step001680000 Predicted](https://soundcloud.com/user-623907374/step001680000-predicted)
-- [Ko_multi Step001700000 Predicted](https://soundcloud.com/user-623907374/step001700000-predicted)
 
 ## Pretrained models
 
@@ -80,11 +59,10 @@ python synthesis.py --preset=20180505_deepvoice3_ljspeech.json \
 
 ## Requirements
 
-- Python 3 (<= 3.6)
-- CUDA >= 8.0
-- PyTorch >= v0.4.0
+- Python 3 (<= 3.7)
+- CUDA >= 10.1
+- PyTorch >= v1.3.1
 - [nnmnkwii](https://github.com/r9y9/nnmnkwii) >= v0.0.11
-- [MeCab](http://taku910.github.io/mecab/) (Japanese only)
 
 ## Installation
 

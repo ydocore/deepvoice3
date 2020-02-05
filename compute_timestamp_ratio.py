@@ -53,8 +53,8 @@ if __name__ == "__main__":
     world_sizes = np.array(world_sizes)
 
     input_timestamps = np.sum(in_sizes)
-    output_timestamps = np.sum(out_sizes) / hparams.outputs_per_step / hparams.downsample_step
-    spec_world_ratio = np.sum(world_sizes) / np.sum(out_sizes)
+    output_timestamps = np.sum(out_sizes) / hparams.outputs_per_step
+    spec_world_ratio = np.max(world_sizes / out_sizes)
 
     print(input_timestamps, output_timestamps, output_timestamps / input_timestamps, spec_world_ratio)
     sys.exit(0)

@@ -273,7 +273,7 @@ class PyTorchDataset(object):
     def __getitem__(self, idx):
         if self.multi_speaker:
             text, speaker_id = self.X[idx]
-            return text, self.Mel[idx], self.Y[idx], speaker_id, self.F0[idx], self.SP[idx], self.AP[idx]
+            return text, self.Mel[idx], self.Y[idx], self.F0[idx], self.SP[idx], self.AP[idx], speaker_id
         else:
             return self.X[idx], self.Mel[idx], self.Y[idx], self.F0[idx], self.SP[idx], self.AP[idx]
 
@@ -285,8 +285,7 @@ class PyTorchDataset(object):
 def collate_fn(batch):
     """Create batch"""
     r = hparams.outputs_per_step
-    downsample_step = hparams.downsample_step
-    multi_speaker = len(batch[0]) == 9
+    multi_speaker = len(batch[0]) == 7
 
     # Lengths
     input_lengths = [len(x[0]) for x in batch]
@@ -300,15 +299,11 @@ def collate_fn(batch):
     if max_target_len % r != 0:
         max_target_len += r - max_target_len % r
         assert max_target_len % r == 0
-        #TODO:downsample_step all delete!
-    if max_target_len % downsample_step != 0:
-        max_target_len += downsample_step - max_target_len % downsample_step
-        assert max_target_len % downsample_step == 0
 
     # Set 0 for zero beginning padding
     # imitates initial decoder states
     b_pad = r
-    max_target_len += b_pad * downsample_step
+    max_target_len += b_pad
     max_world_len = int(max_target_len * hparams.world_upsample)
 
     a = np.array([_pad(x[0], max_input_len) for x in batch], dtype=np.int)
@@ -340,7 +335,7 @@ def collate_fn(batch):
                                for x in batch], dtype=np.int)
     text_positions = torch.LongTensor(text_positions)
 
-    max_decoder_target_len = max_target_len // r // downsample_step
+    max_decoder_target_len = max_target_len // r
 
     # frame positions
     s, e = 1, max_decoder_target_len + 1
@@ -350,7 +345,7 @@ def collate_fn(batch):
         len(batch), max_decoder_target_len)
 
     # done flags
-    done = np.array([_pad(np.zeros(len(x[1]) // r // downsample_step - 1),
+    done = np.array([_pad(np.zeros(len(x[1]) // r - 1),
                           max_decoder_target_len, constant_values=1)
                      for x in batch])
     done = torch.FloatTensor(done).unsqueeze(-1)
@@ -374,8 +369,8 @@ def time_string():
 
 
 def save_alignment(path, attn):
-    plot_alignment(attn.T, path, info="{}, {}, epoch={}".format(
-        hparams.builder, time_string(), global_epoch))
+    plot_alignment(attn.T, path, info="{}, {}, step={}".format(
+        hparams.builder, time_string(), global_step))
 
 
 def prepare_spec_image(spectrogram):
@@ -385,7 +380,7 @@ def prepare_spec_image(spectrogram):
     return np.uint8(cm.magma(spectrogram.T) * 255)
 
 
-def eval_model(global_epoch, writer, device, model, checkpoint_dir, ismultispeaker):
+def eval_model(global_step, writer, device, model, checkpoint_dir, ismultispeaker):
     # harded coded
     texts = [
         "And debtors might practically have as much as they liked%if they could only pay for it.",
@@ -419,36 +414,36 @@ def eval_model(global_epoch, writer, device, model, checkpoint_dir, ismultispeak
             for i, alignment in enumerate(alignments, 1):
                 alignment_dir = join(eval_output_dir, "alignment_layer{}".format(i))
                 os.makedirs(alignment_dir, exist_ok=True)
-                path = join(alignment_dir, "epoch{:09d}_text{}_{}_layer{}_alignment.png".format(
-                    global_epoch, idx, speaker_str, i))
+                path = join(alignment_dir, "step{:09d}_text{}_{}_layer{}_alignment.png".format(
+                    global_step, idx, speaker_str, i))
                 save_alignment(path, alignment)
                 tag = "eval_text_{}_alignment_layer{}_{}".format(idx, i, speaker_str)
-                writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1)) * 255).T, global_epoch)
+                writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1)) * 255).T, global_step)
 
             # Mel
             writer.add_image("(Eval) Predicted mel spectrogram text{}_{}".format(idx, speaker_str),
-                             prepare_spec_image(mel).transpose(2,0,1), global_epoch)
+                             prepare_spec_image(mel).transpose(2,0,1), global_step)
 
             # Audio
-            path = join(eval_output_dir, "epoch{:09d}_text{}_{}_predicted.wav".format(
-                global_epoch, idx, speaker_str))
+            path = join(eval_output_dir, "step{:09d}_text{}_{}_predicted.wav".format(
+                global_step, idx, speaker_str))
             audio.save_wav(signal, path)
-            path = join(eval_output_dir, "epoch{:09d}_text{}_{}_world.wav".format(
-                global_epoch, idx, speaker_str))
+            path = join(eval_output_dir, "step{:09d}_text{}_{}_world.wav".format(
+                global_step, idx, speaker_str))
 
             try:
                 writer.add_audio("(Eval) Predicted audio signal {}_{}".format(idx, speaker_str),
-                                 signal, global_epoch, sample_rate=hparams.sample_rate)
+                                 signal, global_step, sample_rate=hparams.sample_rate)
                 writer.add_audio("(Eval) WORLD audio signal {}_{}".format(idx, speaker_str),
-                                 world, global_epoch, sample_rate=hparams.sample_rate)
+                                 world, global_step, sample_rate=hparams.sample_rate)
             except Exception as e:
                 warn(str(e))
                 pass
 
 
-def save_states(global_epoch, writer, mel_outputs, linear_outputs, attn, mel, y,
+def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
                 input_lengths, f0s, sps, aps, tar_f0, tar_sp, tar_ap, checkpoint_dir=None):
-    print("Save intermediate states at epoch {}".format(global_epoch))
+    print("Save intermediate states at step {}".format(global_step))
 
     # idx = np.random.randint(0, len(input_lengths))
     idx = min(1, len(input_lengths) - 1)
@@ -460,34 +455,34 @@ def save_states(global_epoch, writer, mel_outputs, linear_outputs, attn, mel, y,
         for i, alignment in enumerate(attn):
             alignment = alignment[idx].cpu().data.numpy()
             tag = "alignment_layer{}".format(i + 1)
-            writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1)) * 255).T, global_epoch) #転置消去
+            writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1)) * 255).T, global_step) #転置消去
 
             # save files as well for now
             alignment_dir = join(checkpoint_dir, "alignment_layer{}".format(i + 1))
             os.makedirs(alignment_dir, exist_ok=True)
-            path = join(alignment_dir, "epoch{:09d}_layer_{}_alignment.png".format(
-                global_epoch, i + 1))
+            path = join(alignment_dir, "step{:09d}_layer_{}_alignment.png".format(
+                global_step, i + 1))
             save_alignment(path, alignment)
 
     # Predicted mel spectrogram
     if mel_outputs is not None:
         mel_output = mel_outputs[idx].cpu().data.numpy()
         mel_output = prepare_spec_image(audio._denormalize(mel_output))
-        writer.add_image("Predicted mel spectrogram", mel_output.transpose(2,0,1), global_epoch)
+        writer.add_image("Predicted mel spectrogram", mel_output.transpose(2,0,1), global_step)
 
     # Predicted spectrogram
     if linear_outputs is not None:
         linear_output = linear_outputs[idx].cpu().data.numpy()
         spectrogram = prepare_spec_image(audio._denormalize(linear_output))
-        writer.add_image("Predicted linear spectrogram", spectrogram.transpose(2,0,1), global_epoch)
+        writer.add_image("Predicted linear spectrogram", spectrogram.transpose(2,0,1), global_step)
 
         # Predicted audio signal
         signal = audio.inv_spectrogram(linear_output.T)
         signal /= np.max(np.abs(signal))
-        path = join(checkpoint_dir, "epoch{:09d}_predicted.wav".format(
-            global_epoch))
+        path = join(checkpoint_dir, "step{:09d}_predicted.wav".format(
+            global_step))
         try:
-            writer.add_audio("Predicted audio signal", signal, global_epoch, sample_rate=hparams.sample_rate)
+            writer.add_audio("Predicted audio signal", signal, global_step, sample_rate=hparams.sample_rate)
         except Exception as e:
             warn(str(e))
             pass
@@ -499,25 +494,25 @@ def save_states(global_epoch, writer, mel_outputs, linear_outputs, attn, mel, y,
         f0 = f0s[idx].cpu().data.numpy() * 400
         ax = fig.add_subplot(1,1,1)
         ax.plot(f0)
-        writer.add_figure('Predicted f0', fig, global_epoch)
+        writer.add_figure('Predicted f0', fig, global_step)
 
         #sp save
         sp = sps[idx].cpu().data.numpy()
         s = prepare_spec_image(sp)
-        writer.add_image("Predicted sp",s.transpose(2,0,1), global_epoch)
+        writer.add_image("Predicted sp",s.transpose(2,0,1), global_step)
 
         #ap save
         ap = aps[idx].cpu().data.numpy()
         a = prepare_spec_image(ap)
-        writer.add_image("Predicted ap", a.transpose(2,0,1), global_epoch)
+        writer.add_image("Predicted ap", a.transpose(2,0,1), global_step)
 
         #world vocoder
         world = audio.world_synthesize(f0, sp, ap)
         world /= np.max(np.abs(world))
-        path = join(checkpoint_dir, "epoch{:09d}_predicted_world.wav".format(
-            global_epoch))
+        path = join(checkpoint_dir, "step{:09d}_predicted_world.wav".format(
+            global_step))
         try:
-            writer.add_audio("Predicted world signal", world, global_epoch, sample_rate=hparams.sample_rate)
+            writer.add_audio("Predicted world signal", world, global_step, sample_rate=hparams.sample_rate)
         except Exception as e:
             warn(str(e))
             pass
@@ -528,13 +523,13 @@ def save_states(global_epoch, writer, mel_outputs, linear_outputs, attn, mel, y,
     if mel_outputs is not None:
         mel_output = mel[idx].cpu().data.numpy()
         mel_output = prepare_spec_image(audio._denormalize(mel_output))
-        writer.add_image("Target mel spectrogram", mel_output.transpose(2,0,1), global_epoch)
+        writer.add_image("Target mel spectrogram", mel_output.transpose(2,0,1), global_step)
 
     # Target spectrogram
     if linear_outputs is not None:
         linear_output = y[idx].cpu().data.numpy()
         spectrogram = prepare_spec_image(audio._denormalize(linear_output))
-        writer.add_image("Target linear spectrogram", spectrogram.transpose(2,0,1), global_epoch)
+        writer.add_image("Target linear spectrogram", spectrogram.transpose(2,0,1), global_step)
 
     # Predicted world parameter
     if f0s is not None:
@@ -542,17 +537,17 @@ def save_states(global_epoch, writer, mel_outputs, linear_outputs, attn, mel, y,
         f0 = tar_f0[idx].cpu().data.numpy() * 400
         ax = fig.add_subplot(1, 1, 1)
         ax.plot(f0)
-        writer.add_figure('Target f0', fig, global_epoch)
+        writer.add_figure('Target f0', fig, global_step)
 
         # sp save
         sp = tar_sp[idx].cpu().data.numpy()
         s = prepare_spec_image(sp)
-        writer.add_image("Target sp", s.transpose(2, 0, 1), global_epoch)
+        writer.add_image("Target sp", s.transpose(2, 0, 1), global_step)
 
         # ap save
         ap = tar_ap[idx].cpu().data.numpy()
         a = prepare_spec_image(ap)
-        writer.add_image("Target ap", a.transpose(2, 0, 1), global_epoch)
+        writer.add_image("Target ap", a.transpose(2, 0, 1), global_step)
 
 
 def logit(x, eps=1e-8):
@@ -566,7 +561,6 @@ def train(device, model, data_loader, optimizer, writer,
           train_seq2seq=True, train_postnet=True):
     linear_dim = model.linear_dim
     r = hparams.outputs_per_step
-    downsample_step = hparams.downsample_step
     current_lr = init_lr
 
     binary_criterion = nn.BCELoss()
@@ -578,7 +572,6 @@ def train(device, model, data_loader, optimizer, writer,
     while global_epoch < nepochs:
         running_loss = 0.
         print("{}epoch:".format(global_epoch))
-        #start = time.time()
         for step, (x, input_lengths, mel, y, positions, done, target_lengths,
                    speaker_ids, f0, sp, ap, voiced, world_lengths) \
                 in tqdm(enumerate(data_loader)):
@@ -596,13 +589,9 @@ def train(device, model, data_loader, optimizer, writer,
             # Used for Position encoding
             text_positions, frame_positions = positions
 
-            # Downsample mel spectrogram
-            if downsample_step > 1:
-                mel = mel[:, 0::downsample_step, :].contiguous()
-
             # Lengths
             input_lengths = input_lengths.long().numpy()
-            decoder_lengths = target_lengths.long().numpy() // r // downsample_step
+            decoder_lengths = target_lengths.long().numpy() // r
 
             max_seq_len = max(input_lengths.max(), decoder_lengths.max())
             if max_seq_len >= hparams.max_positions:
@@ -650,8 +639,6 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
 
 
             # Losses
-            w = hparams.binary_divergence_weight
-
             # mel:
             if train_seq2seq:
                 #import pdb; pdb.set_trace()
@@ -680,7 +667,7 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
 
             if global_epoch == 0 and global_step == 0:
                 save_states(
-                    global_epoch, writer, mel_outputs, linear_outputs, attn,
+                    global_step, writer, mel_outputs, linear_outputs, attn,
                     mel, y, input_lengths, f0_outputs, sp_outputs, ap_outputs, f0, sp, ap, checkpoint_dir)
 
 
@@ -715,16 +702,16 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
             global_step += 1
             running_loss += loss.item()
 
-        if global_epoch >= 0 and global_epoch % checkpoint_interval == 0:
-            save_states(
-                global_epoch, writer, mel_outputs, linear_outputs, attn,
-                mel, y, input_lengths, f0_outputs, sp_outputs, ap_outputs, f0, sp, ap, checkpoint_dir)
-            save_checkpoint(
-                model, optimizer, global_step, checkpoint_dir, global_epoch,
-                train_seq2seq, train_postnet)
+            if global_step > 0 and global_step % checkpoint_interval == 0:
+                save_states(
+                    global_step, writer, mel_outputs, linear_outputs, attn,
+                    mel, y, input_lengths, f0_outputs, sp_outputs, ap_outputs, f0, sp, ap, checkpoint_dir)
+                save_checkpoint(
+                    model, optimizer, global_step, checkpoint_dir, global_epoch,
+                    train_seq2seq, train_postnet)
 
-        if global_epoch >= 600 and global_epoch % hparams.eval_interval == 0:
-            eval_model(global_epoch, writer, device, model, checkpoint_dir, ismultispeaker)
+            if global_step > 1e5 and global_step % hparams.eval_interval == 0 :
+                eval_model(global_step, writer, device, model, checkpoint_dir, ismultispeaker)
 
         averaged_loss = running_loss / (len(data_loader))
         writer.add_scalar("loss (per epoch)", averaged_loss, global_epoch)
@@ -746,7 +733,7 @@ def save_checkpoint(model, optimizer, step, checkpoint_dir, epoch,
         m = model.postnet
 
     checkpoint_path = join(
-        checkpoint_dir, "checkpoint_epoch{:09d}{}.pth".format(global_epoch, suffix))
+        checkpoint_dir, "checkpoint_step{:09d}{}.pth".format(global_step, suffix))
     optimizer_state = optimizer.state_dict() if hparams.save_optimizer_state else None
     torch.save({
         "state_dict": m.state_dict(),
@@ -766,13 +753,16 @@ def build_model():
         mel_dim=hparams.num_mels,
         linear_dim=hparams.fft_size // 2 + 1,
         r=hparams.outputs_per_step,
-        downsample_step=hparams.downsample_step,
         padding_idx=hparams.padding_idx,
         dropout=hparams.dropout,
         kernel_size=hparams.kernel_size,
         encoder_channels=hparams.encoder_channels,
+        num_encoder_layer=hparams.num_encoder_layer,
         decoder_channels=hparams.decoder_channels,
+        num_decoder_layer=hparams.num_decoder_layer,
+        attention_hidden=hparams.attention_hidden,
         converter_channels=hparams.converter_channels,
+        num_converter_layer=hparams.num_converter_layer,
         query_position_rate=hparams.query_position_rate,
         key_position_rate=hparams.key_position_rate,
         position_weight=hparams.position_weight,
@@ -787,7 +777,8 @@ def build_model():
         window_backward=hparams.window_backward,
         key_projection=hparams.key_projection,
         value_projection=hparams.value_projection,
-        world_upsample=hparams.world_upsample
+        world_upsample=hparams.world_upsample,
+        sp_fft_size=hparams.sp_fft_size,
     )
     return model
 

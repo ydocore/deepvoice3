@@ -14,8 +14,8 @@ def _maybe_get_arpabet(word, p):
     #if word contains punctuation, it cannot change phonemes.
     #e.g. word='Printing,' cannot change, but word='Printing' can change phonemes
     if len(word) != 0 and word[-1] in '!,.:;?':
+        punc = ' %' + word[-1] if word[-1] in '!.?' else ' %'
         word = word[:-1]
-        punc = ' %'
     else:
         punc = None
     try:
@@ -38,6 +38,8 @@ def mix_pronunciation(text, p):
 
 def text_to_sequence(text, p=0.0):
     text = normalize_numbers(text)
+    text = text.replace('\r', '')
+    text = text + '.' if text[-1] not in '!,.:;?' else text
     if p >= 0:
         text = mix_pronunciation(text, p)
     from deepvoice3_pytorch.frontend.text import text_to_sequence

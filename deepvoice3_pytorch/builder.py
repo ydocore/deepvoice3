@@ -5,13 +5,15 @@ from deepvoice3_pytorch import MultiSpeakerTTSModel, AttentionSeq2Seq
 
 
 def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
-               downsample_step=1,
                n_speakers=1, speaker_embed_dim=16, padding_idx=0,
                dropout=(1 - 0.95), kernel_size=5,
                encoder_channels=128,
+               num_encoder_layer=7,
                decoder_channels=256,
+               num_decoder_layer=4,
                attention_hidden=128,
                converter_channels=256,
+               num_converter_layer=5,
                query_position_rate=1.0,
                key_position_rate=1.29,
                position_weight=1.0,
@@ -27,13 +29,12 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
                window_backward=1,
                key_projection=False,
                value_projection=False,
-               world_upsample = 1
+               world_upsample = 1,
+               sp_fft_size=1025
                ):
     """Build deepvoice3
     """
     from deepvoice3_pytorch.deepvoice3 import Encoder, Decoder, Converter
-
-    time_upsampling = 1#max(downsample_step // r, 1)
 
     # Seq2seq
     h = encoder_channels  # hidden dim (channels)
@@ -44,19 +45,18 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
         dropout=dropout, max_positions=max_positions,
         embedding_weight_std=embedding_weight_std,
         # (channels, kernel_size, dilation)
-        convolutions=[(h, k, 1),]*7,num_attention_layers=6#TODO:hard codeなのでいろいろ直す
+        convolutions=[(h, k, 1),]*num_encoder_layer,#num_attention_layers=6#TODO:hard codeなのでいろいろ直す
     )
 
     h = decoder_channels
-    k = kernel_size #論文に従う．手打ち
+    k = kernel_size
     att_hid = attention_hidden
     decoder = Decoder(
         embed_dim, attention_hidden=att_hid, in_dim=mel_dim, r=r, padding_idx=padding_idx,
         n_speakers=n_speakers, speaker_embed_dim=speaker_embed_dim,
         dropout=dropout, max_positions=max_positions,
         preattention=[(mel_dim*r,h//2),(h//2,h)],
-        convolutions=[(h, k, 1),]*6,#,[(h,k,1),(h,k,1),(h,k,1),(h,k,3),(h,k,3),(h,k,3),(h,k,9),(h,k,9)]
-        attention=[True,False,True,False,False,False,False,False],
+        convolutions=[(h, k, 1),]*num_decoder_layer,
         force_monotonic_attention=force_monotonic_attention,
         query_position_rate=query_position_rate,
         key_position_rate=key_position_rate,
@@ -72,7 +72,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
 
     # Post net
     if use_decoder_state_for_postnet_input:
-        in_dim = h #//r
+        in_dim = h
     else:
         in_dim = mel_dim
     h = converter_channels
@@ -81,7 +81,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
         n_speakers=n_speakers, speaker_embed_dim=speaker_embed_dim,
         in_dim=in_dim, out_dim=linear_dim, dropout=dropout,
         time_upsampling=world_upsample, r=r,
-        convolutions=[(h,k,1),]*7
+        convolutions=[(h,k,1),]*num_converter_layer,sp_dim=sp_fft_size
     )
 
     # Seq2seq + post net

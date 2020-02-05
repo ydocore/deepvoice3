@@ -77,11 +77,25 @@ def _process_utterance(out_dir, index, speaker_id, wav_path, text):
     # Compute a mel-scale spectrogram from the wav:
     mel_spectrogram = audio.melspectrogram(wav).astype(np.float32)
 
+    # world parameters
+    f0, sp, ap = audio.world(wav, hparams.sample_rate)
+    f0 = (f0 / hparams.f0_norm).astype(np.float32)
+    sp = audio._normalize(sp).astype(np.float32)
+    ap = ap.astype(np.float32)
+    world_frames = f0.shape[0]
+
     # Write the spectrograms to disk:
     spectrogram_filename = 'vctk-spec-%05d.npy' % index
     mel_filename = 'vctk-mel-%05d.npy' % index
+    f0_filename = 'vctk-f0-%05d.npy' % index
+    sp_filename = 'vctk-sp-%05d.npy' % index
+    ap_filename = 'vctk-ap-%05d.npy' % index
     np.save(os.path.join(out_dir, spectrogram_filename), spectrogram.T, allow_pickle=False)
     np.save(os.path.join(out_dir, mel_filename), mel_spectrogram.T, allow_pickle=False)
+    np.save(os.path.join(out_dir, f0_filename), f0, allow_pickle=False)
+    np.save(os.path.join(out_dir, sp_filename), sp, allow_pickle=False)
+    np.save(os.path.join(out_dir, ap_filename), ap, allow_pickle=False)
 
     # Return a tuple describing this training example:
-    return (spectrogram_filename, mel_filename, n_frames, text, speaker_id)
+    return (spectrogram_filename, mel_filename, n_frames,  f0_filename, sp_filename,
+            ap_filename, world_frames, text, speaker_id)

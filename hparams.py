@@ -1,4 +1,5 @@
 import hparam_tf.hparam
+
 # NOTE: If you want full control for model architecture. please take a look
 # at the code and change whatever you want. Some hyper parameters are hardcoded.
 
@@ -27,23 +28,27 @@ hparams = hparam_tf.hparam.HParams(
     builder="deepvoice3",
 
     # Must be configured depends on the dataset and model you use
-    n_speakers=1,
+    n_speakers=108,
     speaker_embed_dim=16,
 
     # Audio:
     num_mels=80,
     fmin=125,
     fmax=7600,
-    fft_size=4096, #origin is 1024
-    fft_wsize=1102,
-    hop_size=275, #fft_wsize/4
-    sample_rate=22050, #origin is 22050
+    fft_size=4096,
+    fft_wsize=2400,
+    hop_size=600, #fft_wsize/4
+    sample_rate=48000,
     preemphasis=0.97,
     min_level_db=-100,
-    spec_ref_level_db=10,
-    sp_ref_level_db=20,
+    spec_ref_level_db=20, #max_db : 40
+    sp_ref_level_db=20, #max_db : 20
     f0_norm=400,
-    world_upsample=2.5,
+    #WORLDのフレームサイズはSpectrogramのフレームサイズの定数倍で求めることが出来ないので，
+    #WORLDのフレームサイズ/Spectrogramのフレームサイズ が最大の値でupsampleする
+    # can be computed by `compute_timestamp_ratio.py`.
+    world_upsample=2.52,
+    sp_fft_size=1025, #can compute pyworld.get_cheaptrick_fft_size(fs) //2 + 1
     # whether to rescale waveform or not.
     # Let x is an input waveform, rescaled waveform y is given by:
     # y = x / np.abs(x).max() * rescaling_max
@@ -55,7 +60,6 @@ hparams = hparam_tf.hparam.HParams(
     allow_clipping_in_normalization=True,
 
     # Model:
-    downsample_step=1,  # must be 4 when builder="nyanko"
     outputs_per_step=4,  # must be 1 when builder="nyanko"
     embedding_weight_std=1,
     speaker_embedding_weight_std=0.01,
@@ -63,18 +67,21 @@ hparams = hparam_tf.hparam.HParams(
     # Maximum number of input text length
     # try setting larger value if you want to give very long text input
     max_positions=2048,
-    dropout=1-0.99,
+    dropout=1-0.95,
     kernel_size=5,
     text_embed_dim=256, #ori 128
     encoder_channels=128,
+    num_encoder_layer=7,
     decoder_channels=256,
+    num_decoder_layer=6,
     attention_hidden=256,
     # Note: large converter channels requires significant computational cost
     converter_channels=256,
+    num_converter_layer=6,
     query_position_rate=1.0,
     # can be computed by `compute_timestamp_ratio.py`.
-    key_position_rate=1.14,  # 2.37 for jsut
-    position_weight=1.0,
+    key_position_rate=7.6,  # 2.37 for jsut
+    position_weight=0.1,
     key_projection=True,
     value_projection=True,
     use_memory_mask=False,
@@ -88,41 +95,29 @@ hparams = hparam_tf.hparam.HParams(
     pin_memory=False,
     num_workers=5,  # Set it to 1 when in Windows (MemoryError, THAllocator.c 0x5)
 
-    # Loss
-    masked_loss_weight=0,  # (1-w)*loss + w * masked_loss
-    priority_freq=3000,  # heuristic: priotrize [0 ~ priotiry_freq] for linear loss
-    priority_freq_weight=0.0,  # (1-w)*linear_loss + w*priority_linear_loss
-    # https://arxiv.org/pdf/1710.08969.pdf
-    # Adding the divergence to the loss stabilizes training, expecially for
-    # very deep (> 10 layers) networks.
-    # Binary div loss seems has approx 10x scale compared to L1 loss, so I choose 0.1.
-    binary_divergence_weight=0,  # set 0 to disable
-    use_guided_attention=False,
-    guided_attention_sigma=0.2,
-
     # Training:
     batch_size=16,
     adam_beta1=0.9,
-    adam_beta2=0.999,
+    adam_beta2=0.99,
     adam_eps=1e-8,
     amsgrad=False,
     initial_learning_rate=5e-4,
     lr_schedule="noam_learning_rate_decay",
     lr_schedule_kwargs={},
-    nepochs=801,
+    nepochs=1001,
     weight_decay=0.0,
-    max_clip=50.0,
+    max_clip=100.0,
     clip_thresh=5.0,
 
     # Save
-    checkpoint_interval=10,  #test
-    eval_interval=25,
+    checkpoint_interval=2500,  #test
+    eval_interval=5000,
     save_optimizer_state=True,
 
     # Eval:
     # this can be list for multple layers of attention
     # e.g., [True, False, False, False, True]
-    force_monotonic_attention=[False,False,True,False,False,True],
+    force_monotonic_attention=[False,False,False,False,False,False],
     # Attention constraint for incremental decoding
     window_ahead=3,
     # 0 tends to prevent word repretetion, but sometime causes skip words
@@ -150,3 +145,4 @@ def hparams_debug_string():
     values = hparams.values()
     hp = ['  %s: %s' % (name, values[name]) for name in sorted(values)]
     return 'Hyperparameters:\n' + '\n'.join(hp)
+#TODO:不要なパラメータ削除

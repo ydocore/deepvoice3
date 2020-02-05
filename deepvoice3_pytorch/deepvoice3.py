@@ -37,24 +37,20 @@ class Encoder(nn.Module):
 
         # Speaker embedding
         if n_speakers > 1:
-            self.speaker_fc1 = Linear(speaker_embed_dim, embed_dim, dropout=dropout)
-            self.speaker_fc2 = Linear(speaker_embed_dim, embed_dim, dropout=dropout)
+            self.speaker_fc1 = Linear(speaker_embed_dim, embed_dim)
+            self.speaker_fc2 = Linear(speaker_embed_dim, embed_dim)
         self.n_speakers = n_speakers
 
         # Non causual convolution blocks
         in_channels = embed_dim
         self.convolutions = nn.ModuleList()
-        std_mul = 4.0
         self.pre_linear = Linear(in_channels,convolutions[0][0])
         in_channels = convolutions[0][0]
         for idx, (out_channels, kernel_size, dilation) in enumerate(convolutions):
-            if idx+1 == len(convolutions):
-                std_mul= 1.0
             self.convolutions.append(
                 Conv1dGLU(n_speakers, speaker_embed_dim,
                           in_channels, out_channels, kernel_size, causal=False,
-                          dilation=dilation, dropout=dropout, std_mul=std_mul,
-                          residual=True))
+                          dilation=dilation, dropout=dropout, residual=True))
             in_channels = out_channels
         self.linear = Linear(in_channels,embed_dim)#original
 
@@ -106,9 +102,9 @@ class AttentionLayer(nn.Module):
                  window_ahead=3, window_backward=1,
                  key_projection=True, value_projection=True):
         super(AttentionLayer, self).__init__()
-        self.query_projection = Linear(conv_channels, att_hid,dim=0)
+        self.query_projection = Linear(conv_channels, att_hid)
         if key_projection:
-            self.key_projection = Linear(embed_dim, att_hid,dim=0)
+            self.key_projection = Linear(embed_dim, att_hid)
             # According to the DeepVoice3 paper, intiailize weights to same values
             if conv_channels == embed_dim:
                 self.key_projection.load_state_dict(self.query_projection.state_dict())
@@ -167,7 +163,6 @@ class AttentionLayer(nn.Module):
 
         # project back
         x = self.out_projection(x)
-        #x = (x + residual) * math.sqrt(0.5)
         return x, attn_scores
 
 
@@ -177,7 +172,7 @@ class Decoder(nn.Module):
                  max_positions=512, padding_idx=None,
                  preattention=(80,128),
                  convolutions=((128, 5, 1),) * 4,
-                 attention=True, dropout=0.1,
+                 dropout=0.1,
                  use_memory_mask=False,
                  force_monotonic_attention=False,
                  query_position_rate=1.0,
@@ -191,17 +186,12 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.dropout = dropout
         self.in_dim = in_dim
-        self.att_hid = attention_hidden
         self.r = r
         self.query_position_rate = query_position_rate
-        self.key_position_rate = key_position_rate
+        self.key_position_rate = torch.tensor(key_position_rate) if n_speakers > 1 else key_position_rate
         self.position_weight = position_weight
 
         in_channels = in_dim*r
-        if isinstance(attention, bool):
-            # expand True into [True, True, ...] and do the same with False
-            attention = [attention] * len(convolutions)
-        self.att = attention
 
         # Position encodings for query (decoder states) and keys (encoder states)
         self.embed_query_positions = SinusoidalEncoding(
@@ -210,59 +200,30 @@ class Decoder(nn.Module):
             max_positions, embed_dim)
         # Used for compute multiplier for positional encodings
         if n_speakers > 1:
-            self.speaker_proj1 = Linear(speaker_embed_dim, in_dim, dropout=dropout)
-            self.speaker_proj2 = Linear(speaker_embed_dim, in_dim, dropout=dropout)
+            self.speaker_proj1 = Linear(speaker_embed_dim, 1)
+            self.speaker_proj2 = Linear(speaker_embed_dim, 1)
         else:
             self.speaker_proj1, self.speaker_proj2 = None, None
 
-        # Prenet: causal convolution blocks
+        # Prenet: FC layer
         self.preattention = nn.ModuleList()
-        '''元論文に変更
-        in_channels = in_dim * r
-
-        std_mul = 4.0
-
-        for out_channels, kernel_size, dilation in preattention:
-            if in_channels != out_channels:
-                # Conv1d + ReLU
-                self.preattention.append(
-                    Conv1d(in_channels, out_channels, kernel_size=1, padding=0,
-                           dilation=1, std_mul=std_mul))
-                self.preattention.append(nn.ReLU(inplace=True))
-                in_channels = out_channels
-                std_mul = 2.0
-            self.preattention.append(
-                Conv1dGLU(n_speakers, speaker_embed_dim,
-                          in_channels, out_channels, kernel_size, causal=True,
-                          dilation=dilation, dropout=dropout, std_mul=std_mul,
-                          residual=True))
-
-            in_channels = out_channels
-            std_mul = 4.0
-            '''
-        in_channels = in_dim*r
+        self.speaker_fc = nn.ModuleList()
         for _, out_channels in preattention:
+            if n_speakers > 1:
+                self.speaker_fc.append(Linear(speaker_embed_dim,in_channels)) #apply multi-speaker
             self.preattention.append(Linear(in_channels,out_channels))
-            self.preattention.append(nn.ReLU(inplace=True))
             in_channels = out_channels
 
-
-
-        in_channels = out_channels
-        std_mul=4.0
         # Causal convolution blocks + attention layers
         self.convolutions = nn.ModuleList()
         self.attention = nn.ModuleList()
 
         for i, (out_channels, kernel_size, dilation) in enumerate(convolutions):
             assert in_channels == out_channels
-            if i+1 == len(convolutions):
-                std_mul=1.0
             self.convolutions.append(
                 Conv1dGLU(n_speakers, speaker_embed_dim,
                           in_channels, out_channels, kernel_size, causal=True,
-                          dilation=dilation, dropout=dropout, std_mul=std_mul,
-                          residual=True))
+                          dilation=dilation, dropout=dropout, residual=True))
             self.attention.append(
                 AttentionLayer(out_channels, embed_dim,attention_hidden,
                                dropout=dropout,
@@ -271,11 +232,6 @@ class Decoder(nn.Module):
                                key_projection=key_projection,
                                value_projection=value_projection))
             in_channels = out_channels
-            #std_mul = 4.0
-        # Last 1x1 convolution
-        self.last_conv = Conv1d(in_channels, in_dim * r, kernel_size=1,
-                                padding=0, dilation=1, std_mul=std_mul,
-                                dropout=dropout)
 
         self.last_fc = Linear(in_channels,in_dim*r)
         self.gate_fc = Linear(in_channels,in_dim*r)
@@ -320,14 +276,14 @@ class Decoder(nn.Module):
                 w = self.key_position_rate * torch.sigmoid(self.speaker_proj1(speaker_embed)).view(-1)
             else:
                 w = self.key_position_rate
-            keys = keys + self.embed_keys_positions(text_positions, w)[:,:text_positions.size(-1),:]
+            keys = keys + self.position_weight * self.embed_keys_positions(text_positions, w)[:,:text_positions.size(-1),:]
         if frame_positions is not None:
             #w = 1 #self.query_position_rate
             if self.speaker_proj2 is not None:
                 w = 2 * torch.sigmoid(self.speaker_proj2(speaker_embed)).view(-1)
             else:
                 w = self.query_position_rate
-            frame_pos_embed = self.embed_query_positions(frame_positions, w)
+            frame_pos_embed = self.position_weight * self.embed_query_positions(frame_positions, w)
 
         # transpose only once to speed up attention layers
         keys = keys.transpose(1, 2).contiguous()
@@ -342,13 +298,12 @@ class Decoder(nn.Module):
         #x = x.transpose(1, 2)
 
         # Prenet
-        for i, f in enumerate(self.preattention):
+        for i, (f, sf) in enumerate(zip(self.preattention, self.speaker_fc)):
             if i > 0:
                 x = F.dropout(x, p=self.dropout, training=self.training)
             if speaker_embed_btc is not None:
-                #speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.dropout, training=self.training)
-                x = x + F.softsign(self.speaker_fc1(speaker_embed_btc))
-            x = f(x, speaker_embed_btc) if isinstance(f, Conv1dGLU) else f(x)
+                x = x + F.softsign(sf(speaker_embed_btc))
+            x = F.relu(f(x))
 
         # Generic case: B x T x C -> B x C x T
         x = x.transpose(1, 2)
@@ -378,7 +333,6 @@ class Decoder(nn.Module):
         # decoder state (B x T x C):
         # internal representation before compressed to output dimention
         decoder_states = x.transpose(1, 2).contiguous()
-        #x = self.last_conv(x) linearでxをメルスぺの次元数にしなきゃ
 
         # Back to B x T x C
         x = x.transpose(1, 2)
@@ -403,11 +357,10 @@ class Decoder(nn.Module):
 
         # position encodings
         # TODO: may be useful to have projection per attention layer
+        w = self.key_position_rate
         if self.speaker_proj1 is not None:
             w = w * torch.sigmoid(self.speaker_proj1(speaker_embed)).view(-1)
-        else:
-            w = self.key_position_rate
-        text_pos_embed = self.embed_keys_positions(text_positions, w)
+        text_pos_embed = self.position_weight * self.embed_keys_positions(text_positions, w)
         keys = keys + text_pos_embed[:,:text_positions.size(-1),:]
 
         # transpose only once to speed up attention layers
@@ -425,7 +378,7 @@ class Decoder(nn.Module):
         num_attention_layers = sum([layer is not None for layer in self.attention])
         t = 0
         if initial_input is None:
-            initial_input = keys.data.new(B, 1, self.in_dim *self.r).zero_()#in_dim*r del
+            initial_input = keys.data.new(B, 1, self.in_dim *self.r).zero_()
         current_input = initial_input
         while True:
             # frame pos start with 1.
@@ -433,7 +386,7 @@ class Decoder(nn.Module):
             w = self.query_position_rate
             if self.speaker_proj2 is not None:
                 w = w * torch.sigmoid(self.speaker_proj2(speaker_embed)).view(-1)
-            frame_pos_embed = self.embed_query_positions(frame_pos, w)
+            frame_pos_embed = self.position_weight * self.embed_query_positions(frame_pos, w)
 
             if test_inputs is not None:
                 if t >= test_inputs.size(1):
@@ -448,12 +401,11 @@ class Decoder(nn.Module):
             speaker_embed_btc = expand_speaker_embed(initial_input, speaker_embed)
 
             # Prenet
-            for f in self.preattention:
+            for f, sf in zip(self.preattention, self.speaker_fc):
                 x = F.dropout(x, p=self.dropout, training=self.training)
                 if speaker_embed_btc is not None:
-                    speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.dropout, training=self.training)
-                    x = x + F.softsign(self.speaker_fc1(speaker_embed_btc))
-                x=f(x)
+                    x = x + F.softsign(sf(speaker_embed_btc))
+                x=F.relu(f(x))
 
             # Casual convolutions + Multi-hop attentions
             ave_alignment = None
@@ -495,7 +447,6 @@ class Decoder(nn.Module):
 
             #output & done flag predictions
             output = torch.sigmoid(gate) * out
-            #output = output.view(output.size(0), -1, self.in_dim)
             done = torch.sigmoid(self.fc(x))
 
             decoder_states += [decoder_state]
@@ -530,7 +481,6 @@ class Decoder(nn.Module):
     def start_fresh_sequence(self):
         _clear_modules(self.preattention)
         _clear_modules(self.convolutions)
-        self.last_conv.clear_buffer()
 
 
 def _clear_modules(modules):
@@ -544,7 +494,7 @@ def _clear_modules(modules):
 class Converter(nn.Module):
     def __init__(self, n_speakers, speaker_embed_dim,
                  in_dim, out_dim, convolutions=((256, 5, 1),) * 4,
-                 time_upsampling=1, r=5,
+                 time_upsampling=1, r=5, sp_dim=1025,
                  dropout=0.1):
         super(Converter, self).__init__()
         self.dropout = dropout
@@ -557,28 +507,12 @@ class Converter(nn.Module):
         in_channels = convolutions[0][0]
         # Idea from nyanko
         self.convolutions = nn.ModuleList()
-
-        std_mul = 4.0
         for i, (out_channels, kernel_size, dilation) in enumerate(convolutions):
-            '''
-            if in_channels != out_channels:
-                self.convolutions.append(
-                    Conv1d(in_channels, out_channels, kernel_size=1, padding=0,
-                           dilation=1, std_mul=std_mul))
-                self.convolutions.append(nn.ReLU(inplace=True))
-                in_channels = out_channels
-                std_mul = 2.0
-                
-            '''
-            if i + 1 == len(convolutions):
-                std_mul = 1.0
             self.convolutions.append(
                 Conv1dGLU(n_speakers, speaker_embed_dim,
                           in_channels, out_channels, kernel_size, causal=False,
-                          dilation=dilation, dropout=dropout, std_mul=std_mul,
-                          residual=True))
+                          dilation=dilation, dropout=dropout, residual=True))
             in_channels = out_channels
-            #std_mul = 4.0
         # Last fully connect
         self.fc = Linear(in_channels,in_channels*self.r)
 
@@ -589,12 +523,11 @@ class Converter(nn.Module):
         self.upsample = nn.Upsample(scale_factor = time_upsampling)
         self.world = Conv1dGLU(n_speakers, speaker_embed_dim,
                   in_channels, in_channels, kernel_size, causal=False,
-                  dilation=dilation, dropout=dropout, std_mul=std_mul,
-                  residual=True)
+                  dilation=dilation, dropout=dropout, residual=True)
         self.voiced = Linear(in_channels,1)
         self.f0 = Linear(in_channels,1)
-        self.sp = Linear(in_channels,513) #hard corded
-        self.ap = Linear(in_channels,513)
+        self.sp = Linear(in_channels,sp_dim)
+        self.ap = Linear(in_channels,sp_dim)
 
 
     def forward(self, x, speaker_embed=None):
@@ -602,18 +535,15 @@ class Converter(nn.Module):
 
         # expand speaker embedding for all time steps
         speaker_embed_btc = expand_speaker_embed(x, speaker_embed)
-        if speaker_embed_btc is not None:
-            speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.dropout, training=self.training)
+        #if speaker_embed_btc is not None:
+        #    speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.dropout, training=self.training)
 
         # Generic case: B x T x C -> B x C x T
         x = x.transpose(1, 2)
 
         for f in self.convolutions:
-            # Case for upsampling
             if speaker_embed_btc is not None and speaker_embed_btc.size(1) != x.size(-1):
                 speaker_embed_btc = expand_speaker_embed(x, speaker_embed, tdim=-1)
-                speaker_embed_btc = F.dropout(
-                    speaker_embed_btc, p=self.dropout, training=self.training)
             x = f(x, speaker_embed_btc) if isinstance(f, Conv1dGLU) else f(x)
 
         # Back to B x T x C
@@ -627,12 +557,12 @@ class Converter(nn.Module):
 
         #world parameter
         wx = self.upsample(wx)
-        if speaker_embed_btc is not None and speaker_embed_btc.size(1) != x.size(-1):
-            speaker_embed_btc = expand_speaker_embed(x, speaker_embed, tdim=-1)
-            speaker_embed_btc = F.dropout(
-                speaker_embed_btc, p=self.dropout, training=self.training)
+        if speaker_embed_btc is not None and speaker_embed_btc.size(1) != wx.size(-1):
+            speaker_embed_btc = expand_speaker_embed(wx, speaker_embed, tdim=-1)
         wx = self.world(wx, speaker_embed_btc)
         wx = wx.transpose(1, 2)
+        #WORLDパラメータの勾配をscaling
+        wx = GradMultiply.apply(wx, 0.25)
         voiced = torch.sigmoid(self.voiced(wx))
         f0 = self.f0(wx)
         sp = self.sp(wx)

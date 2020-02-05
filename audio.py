@@ -32,11 +32,9 @@ def inv_preemphasis(x):
 
 
 def spectrogram(y):
-    D = librosa.stft(y,n_fft=hparams.fft_size,hop_length=hparams.hop_size,win_length=hparams.fft_wsize)
-    #S = _amp_to_db(np.abs(D)) - hparams.spec_ref_level_db
-    S = librosa.amplitude_to_db(np.abs(D)) - hparams.spec_ref_level_db
-    #if S.max() > 0:
-    #    print("over spec ref level db :%f" % S.max()+hparams.spec_ref_level_db)
+    D = librosa.stft(preemphasis(y),n_fft=hparams.fft_size,hop_length=hparams.hop_size,win_length=hparams.fft_wsize)
+    S = _amp_to_db(np.abs(D)) - hparams.spec_ref_level_db
+    #S = librosa.amplitude_to_db(np.abs(D)) - hparams.spec_ref_level_db
     return _normalize(S)
 
 
@@ -49,9 +47,9 @@ def inv_spectrogram(spectrogram):
 
 
 def melspectrogram(y):
-    D = librosa.stft(y,n_fft=hparams.fft_size,hop_length=hparams.hop_size,win_length=hparams.fft_wsize)
-    #S = _amp_to_db(_linear_to_mel(np.abs(D))) - hparams.spec_ref_level_db
-    S = librosa.amplitude_to_db(_linear_to_mel(np.abs(D))) - hparams.spec_ref_level_db
+    D = librosa.stft(preemphasis(y),n_fft=hparams.fft_size,hop_length=hparams.hop_size,win_length=hparams.fft_wsize)
+    S = _amp_to_db(_linear_to_mel(np.abs(D))) - hparams.spec_ref_level_db
+    #S = librosa.amplitude_to_db(_linear_to_mel(np.abs(D))) - hparams.spec_ref_level_db
     if not hparams.allow_clipping_in_normalization:
         assert S.max() <= 0 and S.min() - hparams.min_level_db >= 0
     return _normalize(S)
@@ -63,8 +61,6 @@ def _lws_processor():
 def world(data,fs):
     f0,sp,ap = pw.wav2world(data.astype(float),fs)
     sp = librosa.power_to_db(np.abs(sp)) - hparams.sp_ref_level_db
-    #if sp.max() > 0:
-    #    print("over SP ref level db:%f" % sp.max()+hparams.sp_ref_level_db)
     return f0,sp,ap
 
 def world_synthesize(f0,sp,ap):

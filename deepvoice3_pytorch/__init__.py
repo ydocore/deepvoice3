@@ -7,7 +7,6 @@ from torch import nn
 
 from .modules import Embedding
 
-
 class MultiSpeakerTTSModel(nn.Module):
     """Attention seq2seq model + post processing network
     """
@@ -85,7 +84,7 @@ class MultiSpeakerTTSModel(nn.Module):
 
         # Prepare postnet inputs
         if self.use_decoder_state_for_postnet_input:
-            postnet_inputs = decoder_states.detach() #WORLDが悪さしてるかもなので，Converterに勾配情報を伝播させない
+            postnet_inputs = decoder_states#.detach() #WORLDが悪さしてるかもなので，Converterに勾配情報を伝播させない
         else:
             postnet_inputs = mel_outputs
 

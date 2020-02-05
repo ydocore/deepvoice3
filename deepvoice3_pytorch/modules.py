@@ -48,16 +48,9 @@ class SinusoidalEncoding(nn.Module):
             ws = weight.size()
             return weight.unsqueeze(0).expand(x.size(0),ws[0],ws[1])
         else:
-            # TODO: cannot simply apply for batch
             # better to implement efficient function
-            pe = []
-            for batch_idx, we in enumerate(w):
-                weight = sinusoidal_encode(self.weight, we)
-                pe.append(F.embedding(
-                    x[batch_idx], weight, self.padding_idx, self.max_norm,
-                    self.norm_type, self.scale_grad_by_freq, self.sparse))
-            pe = torch.stack(pe)
-            return pe
+            weight = sinusoidal_encode(self.pos_table, w[:,None,None])
+            return weight
 
 
 class GradMultiply(torch.autograd.Function):
@@ -97,8 +90,8 @@ def Embedding(num_embeddings, embedding_dim, padding_idx, std=0.01):
 def Conv1d(in_channels, out_channels, kernel_size, dropout=0, std_mul=4.0, **kwargs):
     from .conv import Conv1d
     m = Conv1d(in_channels, out_channels, kernel_size, **kwargs)
-    std = math.sqrt((std_mul*(1.0-dropout)) / (m.kernel_size[0] * in_channels))#std_mul*(1-dropout) > 1
-    m.weight.data.normal_(mean=0, std=0.05)
+    #std = math.sqrt((std_mul*(1.0-dropout)) / (m.kernel_size[0] * in_channels))
+    m.weight.data.normal_(mean=0, std=0.05)#conform weight normalization paper
     m.bias.data.zero_()
     return nn.utils.weight_norm(m,dim=None)
 
@@ -164,7 +157,6 @@ class Conv1dGLU(nn.Module):
             softsign = softsign if is_incremental else softsign.transpose(1, 2)
             a = a + softsign
         x = a * torch.sigmoid(b)
-        #import pdb; pdb.set_trace()
         return (x + residual) * math.sqrt(0.5) if self.residual else x
 
     def clear_buffer(self):
