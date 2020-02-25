@@ -39,8 +39,6 @@
   "query_position_rate": 1.0,
   "key_position_rate": 1.14,
   "position_weight": 1.0,
-  "key_projection": true,
-  "value_projection": true,
   "use_memory_mask": false,
   "trainable_positional_encodings": false,
   "freeze_embedding": false,

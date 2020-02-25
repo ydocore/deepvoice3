@@ -11,6 +11,7 @@ from os.path import join
 from tqdm import tqdm
 import time
 import audio
+import matplotlib.pyplot as plt
 
 if __name__ == '__main__':
     args = docopt(__doc__)
@@ -19,6 +20,14 @@ if __name__ == '__main__':
     out_dir = args["<out_dir>"]
 
     speaker_id = None
+
+    Mel = FileSourceDataset(MelSpecDataSource(in_dir, speaker_id))
+    for i, mel in enumerate(Mel,1):
+        plt.imshow(mel.T)
+        plt.title('num %05d'%i)
+        plt.show()
+        a = 0
+    '''
     SP = FileSourceDataset(SpDataSource(in_dir, speaker_id))
     AP = FileSourceDataset(ApDataSource("./data_world/", speaker_id))
     for i, (sp, ap) in tqdm(enumerate(zip(SP,AP),1)):
@@ -27,7 +36,7 @@ if __name__ == '__main__':
         #sp_filename = 'ljspeech-sp-%05d.npy' % i
         #np.save(os.path.join(out_dir, sp_filename), log_sp, allow_pickle=False)
 
-    '''
+    
     os.makedirs(out_dir, exist_ok=True)
     
     speaker_id = None

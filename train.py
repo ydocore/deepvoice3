@@ -321,6 +321,7 @@ def collate_fn(batch):
                  dtype=np.float32)
     y_batch = torch.FloatTensor(c)
 
+
     rw = int(r * hparams.world_upsample)
 
     d = np.array([np.pad(x[3], (rw, max_world_len-len(x[3])-rw), mode = "constant") for x in batch],dtype=np.float32)
@@ -329,6 +330,7 @@ def collate_fn(batch):
     sp_batch = torch.FloatTensor(e)
     f = np.array([_pad_2d(x[5], max_world_len, b_pad=rw) for x in batch],dtype=np.float32)
     ap_batch = torch.FloatTensor(f)
+
 
     # text positions
     text_positions = np.array([_pad(np.arange(1, len(x[0]) + 1), max_input_len)
@@ -430,6 +432,7 @@ def eval_model(global_step, writer, device, model, checkpoint_dir, ismultispeake
             audio.save_wav(signal, path)
             path = join(eval_output_dir, "step{:09d}_text{}_{}_world.wav".format(
                 global_step, idx, speaker_str))
+            audio.save_wav(world, path)
 
             try:
                 writer.add_audio("(Eval) Predicted audio signal {}_{}".format(idx, speaker_str),
@@ -486,7 +489,8 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
         except Exception as e:
             warn(str(e))
             pass
-        audio.save_wav(signal, path)
+        #audio.save_wav(signal, path)
+
 
     #Predicted world parameter
     if f0s is not None:
@@ -516,7 +520,7 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
         except Exception as e:
             warn(str(e))
             pass
-        audio.save_wav(world, path)
+        #audio.save_wav(world, path)
 
 
     # Target mel spectrogram
@@ -530,6 +534,7 @@ def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
         linear_output = y[idx].cpu().data.numpy()
         spectrogram = prepare_spec_image(audio._denormalize(linear_output))
         writer.add_image("Target linear spectrogram", spectrogram.transpose(2,0,1), global_step)
+
 
     # Predicted world parameter
     if f0s is not None:
@@ -775,8 +780,6 @@ def build_model():
         freeze_embedding=hparams.freeze_embedding,
         window_ahead=hparams.window_ahead,
         window_backward=hparams.window_backward,
-        key_projection=hparams.key_projection,
-        value_projection=hparams.value_projection,
         world_upsample=hparams.world_upsample,
         sp_fft_size=hparams.sp_fft_size,
     )

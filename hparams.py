@@ -17,7 +17,7 @@ hparams = hparam_tf.hparam.HParams(
     # en: Word -> pronunciation using CMUDict
     # jp: Word -> pronounciation usnig MeCab
     # [0 ~ 1.0]: 0 means no replacement happens.
-    replace_pronunciation_prob=0.8,
+    replace_pronunciation_prob=0.5,
 
     # Convenient model builder
     # [deepvoice3, deepvoice3_multispeaker, nyanko]
@@ -28,7 +28,7 @@ hparams = hparam_tf.hparam.HParams(
     builder="deepvoice3",
 
     # Must be configured depends on the dataset and model you use
-    n_speakers=108,
+    n_speakers=1,
     speaker_embed_dim=16,
 
     # Audio:
@@ -36,19 +36,19 @@ hparams = hparam_tf.hparam.HParams(
     fmin=125,
     fmax=7600,
     fft_size=4096,
-    fft_wsize=2400,
-    hop_size=600, #fft_wsize/4
-    sample_rate=48000,
+    fft_wsize=1102,
+    hop_size=275, #fft_wsize/4
+    sample_rate=22050,
     preemphasis=0.97,
     min_level_db=-100,
     spec_ref_level_db=20, #max_db : 40
-    sp_ref_level_db=20, #max_db : 20
+    sp_ref_level_db=10, #max_db : 20
     f0_norm=400,
     #WORLDのフレームサイズはSpectrogramのフレームサイズの定数倍で求めることが出来ないので，
     #WORLDのフレームサイズ/Spectrogramのフレームサイズ が最大の値でupsampleする
     # can be computed by `compute_timestamp_ratio.py`.
-    world_upsample=2.52,
-    sp_fft_size=1025, #can compute pyworld.get_cheaptrick_fft_size(fs) //2 + 1
+    world_upsample=2.5,
+    sp_fft_size=513, #can compute pyworld.get_cheaptrick_fft_size(fs) //2 + 1
     # whether to rescale waveform or not.
     # Let x is an input waveform, rescaled waveform y is given by:
     # y = x / np.abs(x).max() * rescaling_max
@@ -69,23 +69,21 @@ hparams = hparam_tf.hparam.HParams(
     max_positions=2048,
     dropout=1-0.95,
     kernel_size=5,
-    text_embed_dim=256, #ori 128
-    encoder_channels=128,
+    text_embed_dim=256,
+    encoder_channels=64,
     num_encoder_layer=7,
     decoder_channels=256,
-    num_decoder_layer=6,
-    attention_hidden=256,
+    num_decoder_layer=4,
+    attention_hidden=128,
     # Note: large converter channels requires significant computational cost
     converter_channels=256,
-    num_converter_layer=6,
+    num_converter_layer=5,
     query_position_rate=1.0,
     # can be computed by `compute_timestamp_ratio.py`.
-    key_position_rate=7.6,  # 2.37 for jsut
-    position_weight=0.1,
-    key_projection=True,
-    value_projection=True,
+    key_position_rate=1.38,  # 2.37 for jsut
+    position_weight=1.0,
     use_memory_mask=False,
-    trainable_positional_encodings=False,
+    trainable_positional_encodings=True,
     freeze_embedding=False,
     # If True, use decoder's internal representation for postnet inputs,
     # otherwise use mel-spectrogram.
@@ -101,7 +99,7 @@ hparams = hparam_tf.hparam.HParams(
     adam_beta2=0.99,
     adam_eps=1e-8,
     amsgrad=False,
-    initial_learning_rate=5e-4,
+    initial_learning_rate=1e-3,
     lr_schedule="noam_learning_rate_decay",
     lr_schedule_kwargs={},
     nepochs=1001,
@@ -110,14 +108,14 @@ hparams = hparam_tf.hparam.HParams(
     clip_thresh=5.0,
 
     # Save
-    checkpoint_interval=2500,  #test
-    eval_interval=5000,
+    checkpoint_interval=5000,  #test
+    eval_interval=10000,
     save_optimizer_state=True,
 
     # Eval:
     # this can be list for multple layers of attention
     # e.g., [True, False, False, False, True]
-    force_monotonic_attention=[False,False,False,False,False,False],
+    force_monotonic_attention=[False,False,True,False],
     # Attention constraint for incremental decoding
     window_ahead=3,
     # 0 tends to prevent word repretetion, but sometime causes skip words

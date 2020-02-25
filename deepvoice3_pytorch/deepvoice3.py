@@ -52,7 +52,7 @@ class Encoder(nn.Module):
                           in_channels, out_channels, kernel_size, causal=False,
                           dilation=dilation, dropout=dropout, residual=True))
             in_channels = out_channels
-        self.linear = Linear(in_channels,embed_dim)#original
+        self.linear = Linear(in_channels,embed_dim)
 
     def forward(self, text_sequences, text_positions=None, lengths=None,
                 speaker_embed=None):
@@ -98,40 +98,70 @@ class Encoder(nn.Module):
 
 
 class AttentionLayer(nn.Module):
-    def __init__(self, conv_channels, embed_dim, att_hid,dropout=0.1,
-                 window_ahead=3, window_backward=1,
-                 key_projection=True, value_projection=True):
+    def __init__(self, conv_channels, embed_dim, att_hid, n_speakers, speaker_embed_dim,
+                 key_position_rate, query_position_rate, position_weight, max_positions=512,
+                 dropout=0.1, window_ahead=3, window_backward=1, 
+                 ):
         super(AttentionLayer, self).__init__()
+        # Used for compute multiplier for positional encodings
+        if n_speakers > 1:
+            self.speaker_proj1 = Linear(speaker_embed_dim, 1)
+            self.speaker_proj2 = Linear(speaker_embed_dim, 1)
+            self.key_position_rate = nn.Parameter(torch.tensor(key_position_rate,requires_grad=True))
+        else:
+            self.speaker_proj1, self.speaker_proj2 = None, None
+            self.key_position_rate = key_position_rate
+        self.query_position_rate = query_position_rate
+        self.position_weight = position_weight
+
+        # Position encodings for query (decoder states) and keys (encoder states)
+        self.position_enc = SinusoidalEncoding(
+            max_positions, embed_dim)
+
         self.query_projection = Linear(conv_channels, att_hid)
-        if key_projection:
-            self.key_projection = Linear(embed_dim, att_hid)
+        self.key_projection = Linear(embed_dim, att_hid)
             # According to the DeepVoice3 paper, intiailize weights to same values
-            if conv_channels == embed_dim:
-                self.key_projection.load_state_dict(self.query_projection.state_dict())
-        else:
-            self.key_projection = None
-        if value_projection:
-            self.value_projection = Linear(embed_dim, att_hid)
-        else:
-            self.value_projection = None
+        self.key_projection.load_state_dict(self.query_projection.state_dict())
+        self.value_projection = Linear(embed_dim, att_hid)
 
         self.out_projection = Linear(att_hid, conv_channels)
         self.dropout = dropout
         self.window_ahead = window_ahead
         self.window_backward = window_backward
 
-    def forward(self, query, encoder_out, mask=None, last_attended=None):
+    def forward(self, query, encoder_out, text_positions=None, frame_positions=None,
+                speaker_embed=None, key_enc=None, query_enc=None,
+                incremental=False, mask=None, last_attended=None):
         keys, values = encoder_out
-        residual = query
+
+        # position encodings
+        if text_positions is not None:
+            # TODO: may be useful to have projection per attention layer
+            if self.speaker_proj1 is not None:
+                w = self.key_position_rate * torch.sigmoid(self.speaker_proj1(speaker_embed)).view(-1)
+            else:
+                w = self.key_position_rate
+            text_pos_enc = self.position_weight * self.position_enc(text_positions, w)
+            keys = keys + text_pos_enc[:,:text_positions.size(-1), :]
+        if frame_positions is not None:
+            if self.speaker_proj2 is not None:
+                w = 2 * torch.sigmoid(self.speaker_proj2(speaker_embed)).view(-1)
+            else:
+                w = self.query_position_rate
+            frame_pos_enc = self.position_weight * self.position_enc(frame_positions, w)
+            query = query + frame_pos_enc[:,:frame_positions.size(-1),:] if not incremental else query + frame_pos_enc[:, frame_positions[0], :]
+
+        keys = keys.contiguous()
+
         if self.value_projection is not None:
            values = self.value_projection(values)
         # TODO: yes, this is inefficient
         if self.key_projection is not None:
-            keys = self.key_projection(keys.transpose(1, 2)).transpose(1, 2)
+            keys = self.key_projection(keys)
 
         # attention
         x = self.query_projection(query)
-        x = torch.bmm(x, keys)
+        x = torch.bmm(x, keys.transpose(1,2))
 
         mask_value = -float("inf")
         if mask is not None:
@@ -159,7 +189,7 @@ class AttentionLayer(nn.Module):
 
         # scale attention output
         s = values.size(1)
-        x = x *(s * math.sqrt(1.0/s))
+        x = x *(math.sqrt(1.0/s))
 
         # project back
         x = self.out_projection(x)
@@ -180,8 +210,6 @@ class Decoder(nn.Module):
                  position_weight=1.0,
                  window_ahead=3,
                  window_backward=1,
-                 key_projection=True,
-                 value_projection=True,
                  ):
         super(Decoder, self).__init__()
         self.dropout = dropout
@@ -193,24 +221,14 @@ class Decoder(nn.Module):
 
         in_channels = in_dim*r
 
-        # Position encodings for query (decoder states) and keys (encoder states)
-        self.embed_query_positions = SinusoidalEncoding(
-            max_positions, convolutions[0][0])
-        self.embed_keys_positions = SinusoidalEncoding(
-            max_positions, embed_dim)
-        # Used for compute multiplier for positional encodings
-        if n_speakers > 1:
-            self.speaker_proj1 = Linear(speaker_embed_dim, 1)
-            self.speaker_proj2 = Linear(speaker_embed_dim, 1)
-        else:
-            self.speaker_proj1, self.speaker_proj2 = None, None
-
         # Prenet: FC layer
         self.preattention = nn.ModuleList()
         self.speaker_fc = nn.ModuleList()
         for _, out_channels in preattention:
             if n_speakers > 1:
                 self.speaker_fc.append(Linear(speaker_embed_dim,in_channels)) #apply multi-speaker
+            else:
+                self.speaker_fc.append(None)
             self.preattention.append(Linear(in_channels,out_channels))
             in_channels = out_channels
 
@@ -229,8 +247,9 @@ class Decoder(nn.Module):
                                dropout=dropout,
                                window_ahead=window_ahead,
                                window_backward=window_backward,
-                               key_projection=key_projection,
-                               value_projection=value_projection))
+                               n_speakers=n_speakers, speaker_embed_dim=speaker_embed_dim,
+                               key_position_rate=key_position_rate, query_position_rate=query_position_rate,
+                               position_weight=position_weight))
             in_channels = out_channels
 
         self.last_fc = Linear(in_channels,in_dim*r)
@@ -268,34 +287,13 @@ class Decoder(nn.Module):
         else:
             mask = None
 
-        # position encodings
-        if text_positions is not None:
-            #w = 1 #position weight
-            # TODO: may be useful to have projection per attention layer
-            if self.speaker_proj1 is not None:
-                w = self.key_position_rate * torch.sigmoid(self.speaker_proj1(speaker_embed)).view(-1)
-            else:
-                w = self.key_position_rate
-            keys = keys + self.position_weight * self.embed_keys_positions(text_positions, w)[:,:text_positions.size(-1),:]
-        if frame_positions is not None:
-            #w = 1 #self.query_position_rate
-            if self.speaker_proj2 is not None:
-                w = 2 * torch.sigmoid(self.speaker_proj2(speaker_embed)).view(-1)
-            else:
-                w = self.query_position_rate
-            frame_pos_embed = self.position_weight * self.embed_query_positions(frame_positions, w)
-
         # transpose only once to speed up attention layers
-        keys = keys.transpose(1, 2).contiguous()
+        #keys = keys.contiguous()
 
         x = inputs
 
         # expand speaker embedding for all time steps
         speaker_embed_btc = expand_speaker_embed(inputs, speaker_embed)
-
-
-        # Generic case: B x T x C -> B x C x T
-        #x = x.transpose(1, 2)
 
         # Prenet
         for i, (f, sf) in enumerate(zip(self.preattention, self.speaker_fc)):
@@ -320,8 +318,8 @@ class Decoder(nn.Module):
                 assert isinstance(f, Conv1dGLU)
                 # (B x T x C)
                 x = x.transpose(1, 2)
-                x = x if frame_positions is None else x + frame_pos_embed[:,:frame_positions.size(-1),:]
-                x, alignment = attention(x, (keys, values), mask=mask)
+                x, alignment = attention(x, (keys, values), text_positions=text_positions,
+                                         frame_positions=frame_positions, speaker_embed=speaker_embed)
                 # (T x B x C)
                 x = x.transpose(1, 2)
                 alignments += [alignment]
@@ -355,16 +353,8 @@ class Decoder(nn.Module):
         keys, values = encoder_out
         B = keys.size(0)
 
-        # position encodings
-        # TODO: may be useful to have projection per attention layer
-        w = self.key_position_rate
-        if self.speaker_proj1 is not None:
-            w = w * torch.sigmoid(self.speaker_proj1(speaker_embed)).view(-1)
-        text_pos_embed = self.position_weight * self.embed_keys_positions(text_positions, w)
-        keys = keys + text_pos_embed[:,:text_positions.size(-1),:]
-
         # transpose only once to speed up attention layers
-        keys = keys.transpose(1, 2).contiguous()
+        #keys = keys.transpose(1, 2).contiguous()
 
         decoder_states = []
         outputs = []
@@ -383,10 +373,6 @@ class Decoder(nn.Module):
         while True:
             # frame pos start with 1.
             frame_pos = keys.data.new(B, 1).fill_(t + 1).long()
-            w = self.query_position_rate
-            if self.speaker_proj2 is not None:
-                w = w * torch.sigmoid(self.speaker_proj2(speaker_embed)).view(-1)
-            frame_pos_embed = self.position_weight * self.embed_query_positions(frame_pos, w)
 
             if test_inputs is not None:
                 if t >= test_inputs.size(1):
@@ -405,7 +391,7 @@ class Decoder(nn.Module):
                 x = F.dropout(x, p=self.dropout, training=self.training)
                 if speaker_embed_btc is not None:
                     x = x + F.softsign(sf(speaker_embed_btc))
-                x=F.relu(f(x))
+                x = F.relu(f(x))
 
             # Casual convolutions + Multi-hop attentions
             ave_alignment = None
@@ -424,9 +410,9 @@ class Decoder(nn.Module):
                 # attention
                 if attention is not None:
                     assert isinstance(f, Conv1dGLU)
-                    x = x + frame_pos_embed[:,frame_pos[0],:]
-                    x, alignment = attention(x, (keys, values),
-                                             last_attended=last_attended[idx])
+                    x, alignment = attention(x, (keys, values), text_positions=text_positions,
+                             frame_positions=frame_pos, speaker_embed=speaker_embed,
+                             incremental=True, last_attended=last_attended[idx])
                     if self.force_monotonic_attention[idx]:
                         last_attended[idx] = alignment.max(-1)[1].view(-1).data[0]
 
@@ -514,7 +500,9 @@ class Converter(nn.Module):
                           dilation=dilation, dropout=dropout, residual=True))
             in_channels = out_channels
         # Last fully connect
-        self.fc = Linear(in_channels,in_channels*self.r)
+        self.fc = Linear(in_channels,(sp_dim-1)*self.r)
+
+        in_channels = (sp_dim-1)
 
         #linear spectrogram fc
         self.linear_spec = Linear(in_channels,self.out_dim)

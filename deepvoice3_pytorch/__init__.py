@@ -5,7 +5,7 @@
 import torch
 from torch import nn
 
-from .modules import Embedding
+from .modules import Embedding, GradMultiply
 
 class MultiSpeakerTTSModel(nn.Module):
     """Attention seq2seq model + post processing network
@@ -17,7 +17,8 @@ class MultiSpeakerTTSModel(nn.Module):
                  trainable_positional_encodings=False,
                  use_decoder_state_for_postnet_input=False,
                  speaker_embedding_weight_std=0.01,
-                 freeze_embedding=False):
+                 freeze_embedding=False,
+                 scale_speaker_embed=1):
         super(MultiSpeakerTTSModel, self).__init__()
         self.seq2seq = seq2seq
         self.postnet = postnet  # referred as "Converter" in DeepVoice3
@@ -26,6 +27,7 @@ class MultiSpeakerTTSModel(nn.Module):
         self.trainable_positional_encodings = trainable_positional_encodings
         self.use_decoder_state_for_postnet_input = use_decoder_state_for_postnet_input
         self.freeze_embedding = freeze_embedding
+        self.scale_speaker_embed = scale_speaker_embed
 
         # Speaker embedding
         if n_speakers > 1:
@@ -68,6 +70,8 @@ class MultiSpeakerTTSModel(nn.Module):
         if speaker_ids is not None:
             assert self.n_speakers > 1
             speaker_embed = self.embed_speakers(speaker_ids)
+            # scale speaker_embed
+            speaker_embed = GradMultiply.apply(speaker_embed, 1.0 / self.scale_speaker_embed)
         else:
             speaker_embed = None
 

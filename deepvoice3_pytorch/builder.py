@@ -64,8 +64,6 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
         use_memory_mask=use_memory_mask,
         window_ahead=window_ahead,
         window_backward=window_backward,
-        key_projection=key_projection,
-        value_projection=value_projection,
     )
 
     seq2seq = AttentionSeq2Seq(encoder, decoder)
@@ -84,6 +82,8 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
         convolutions=[(h,k,1),]*num_converter_layer,sp_dim=sp_fft_size
     )
 
+    scale_speaker_embed = num_encoder_layer + 2 + num_decoder_layer * 2 + 2 + num_converter_layer + 1
+
     # Seq2seq + post net
     model = MultiSpeakerTTSModel(
         seq2seq, converter, padding_idx=padding_idx,
@@ -92,7 +92,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
         trainable_positional_encodings=trainable_positional_encodings,
         use_decoder_state_for_postnet_input=use_decoder_state_for_postnet_input,
         speaker_embedding_weight_std=speaker_embedding_weight_std,
-        freeze_embedding=freeze_embedding)
+        freeze_embedding=freeze_embedding, scale_speaker_embed=scale_speaker_embed)
 
     return model
 
