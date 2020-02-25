@@ -455,7 +455,6 @@ class Decoder(nn.Module):
 
         # Combine outputs for all time steps
         alignments = torch.stack(alignments).transpose(0, 2)
-        #import pdb; pdb.set_trace()
         decoder_states = torch.stack(decoder_states).transpose(0, 1).contiguous()
         outputs = torch.stack(outputs).transpose(0, 1).contiguous()
         outputs = outputs.view(outputs.size(0),-1,self.in_dim)

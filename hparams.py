@@ -80,7 +80,7 @@ hparams = hparam_tf.hparam.HParams(
     num_converter_layer=5,
     query_position_rate=1.0,
     # can be computed by `compute_timestamp_ratio.py`.
-    key_position_rate=1.38*4,  # 2.37 for jsut
+    key_position_rate=1.38,  # 2.37 for jsut
     position_weight=1.0,
     use_memory_mask=False,
     trainable_positional_encodings=True,
@@ -115,7 +115,7 @@ hparams = hparam_tf.hparam.HParams(
     # Eval:
     # this can be list for multple layers of attention
     # e.g., [True, False, False, False, True]
-    force_monotonic_attention=[False,False,False,False],
+    force_monotonic_attention=[False,False,True,False],
     # Attention constraint for incremental decoding
     window_ahead=3,
     # 0 tends to prevent word repretetion, but sometime causes skip words
