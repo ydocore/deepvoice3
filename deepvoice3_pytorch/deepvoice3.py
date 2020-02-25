@@ -60,7 +60,6 @@ class Encoder(nn.Module):
 
         # embed text_sequences
         x = self.embed_tokens(text_sequences.long())
-        #x = F.dropout(x, p=self.dropout, training=self.training)
 
         # expand speaker embedding for all time steps
         speaker_embed_btc = expand_speaker_embed(x, speaker_embed)
@@ -120,7 +119,7 @@ class AttentionLayer(nn.Module):
 
         self.query_projection = Linear(conv_channels, att_hid)
         self.key_projection = Linear(embed_dim, att_hid)
-            # According to the DeepVoice3 paper, intiailize weights to same values
+        # According to the DeepVoice3 paper, intiailize weights to same values
         self.key_projection.load_state_dict(self.query_projection.state_dict())
         self.value_projection = Linear(embed_dim, att_hid)
 
@@ -142,7 +141,7 @@ class AttentionLayer(nn.Module):
             else:
                 w = self.key_position_rate
             text_pos_enc = self.position_weight * self.position_enc(text_positions, w)
-            keys = keys + text_pos_enc[:,:text_positions.size(-1), :]
+            keys = keys + text_pos_enc[:,:keys.size(1), :]
         if frame_positions is not None:
             if self.speaker_proj2 is not None:
                 w = 2 * torch.sigmoid(self.speaker_proj2(speaker_embed)).view(-1)

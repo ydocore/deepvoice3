@@ -296,6 +296,10 @@ def collate_fn(batch):
 
     world_lengths = [len(x[3]) for x in batch]
 
+    if max_input_len % r != 0:
+        max_input_len += r - max_input_len % r
+        assert max_input_len % r == 0
+
     if max_target_len % r != 0:
         max_target_len += r - max_target_len % r
         assert max_target_len % r == 0
