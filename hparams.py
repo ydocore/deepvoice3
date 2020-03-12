@@ -28,7 +28,7 @@ hparams = hparam_tf.hparam.HParams(
     builder="deepvoice3",
 
     # Must be configured depends on the dataset and model you use
-    n_speakers=1,
+    n_speakers=108,
     speaker_embed_dim=16,
 
     # Audio:
@@ -36,19 +36,19 @@ hparams = hparam_tf.hparam.HParams(
     fmin=125,
     fmax=7600,
     fft_size=4096,
-    fft_wsize=1102,
-    hop_size=275, #fft_wsize/4
-    sample_rate=22050,
+    fft_wsize=2400,
+    hop_size=600, #fft_wsize/4
+    sample_rate=48000,
     preemphasis=0.97,
     min_level_db=-100,
     spec_ref_level_db=20, #max_db : 40
-    sp_ref_level_db=10, #max_db : 20
+    sp_ref_level_db=20, #max_db : 20
     f0_norm=400,
     #WORLDのフレームサイズはSpectrogramのフレームサイズの定数倍で求めることが出来ないので，
     #WORLDのフレームサイズ/Spectrogramのフレームサイズ が最大の値でupsampleする
     # can be computed by `compute_timestamp_ratio.py`.
-    world_upsample=2.5,
-    sp_fft_size=513, #can compute pyworld.get_cheaptrick_fft_size(fs) //2 + 1
+    world_upsample=2.6,
+    sp_fft_size=1025, #can compute pyworld.get_cheaptrick_fft_size(fs) //2 + 1
     # whether to rescale waveform or not.
     # Let x is an input waveform, rescaled waveform y is given by:
     # y = x / np.abs(x).max() * rescaling_max
@@ -70,18 +70,18 @@ hparams = hparam_tf.hparam.HParams(
     dropout=1-0.95,
     kernel_size=5,
     text_embed_dim=256,
-    encoder_channels=64,
+    encoder_channels=128,
     num_encoder_layer=7,
     decoder_channels=256,
-    num_decoder_layer=4,
-    attention_hidden=128,
+    num_decoder_layer=6,
+    attention_hidden=256,
     # Note: large converter channels requires significant computational cost
     converter_channels=256,
-    num_converter_layer=5,
+    num_converter_layer=6,
     query_position_rate=1.0,
     # can be computed by `compute_timestamp_ratio.py`.
-    key_position_rate=1.38,  # 2.37 for jsut
-    position_weight=1.0,
+    key_position_rate=1.8,  # 2.37 for jsut
+    position_weight=0.1,
     use_memory_mask=False,
     trainable_positional_encodings=True,
     freeze_embedding=False,
@@ -96,11 +96,11 @@ hparams = hparam_tf.hparam.HParams(
     # Training:
     batch_size=16,
     adam_beta1=0.9,
-    adam_beta2=0.99,
+    adam_beta2=0.999,
     adam_eps=1e-8,
     amsgrad=False,
-    initial_learning_rate=1e-3,
-    lr_schedule="noam_learning_rate_decay",
+    initial_learning_rate=5e-4,
+    lr_schedule="step_learning_rate_decay",
     lr_schedule_kwargs={},
     nepochs=1001,
     weight_decay=0.0,
@@ -109,13 +109,13 @@ hparams = hparam_tf.hparam.HParams(
 
     # Save
     checkpoint_interval=5000,  #test
-    eval_interval=10000,
+    eval_interval=50000,
     save_optimizer_state=True,
 
     # Eval:
     # this can be list for multple layers of attention
     # e.g., [True, False, False, False, True]
-    force_monotonic_attention=[False,False,True,False],
+    force_monotonic_attention=[False,False,False,False,False,False],
     # Attention constraint for incremental decoding
     window_ahead=3,
     # 0 tends to prevent word repretetion, but sometime causes skip words

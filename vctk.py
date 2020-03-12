@@ -55,7 +55,7 @@ def _process_utterance(out_dir, index, speaker_id, wav_path, text):
     # Load the audio to a numpy array:
     wav = audio.load_wav(wav_path)
 
-    lab_path = wav_path.replace("wav48/", "lab/").replace(".wav", ".lab")
+    lab_path = wav_path.replace("wav48\\", "lab\\").replace(".wav", ".lab")
 
     # Trim silence from hts labels if available
     if exists(lab_path):

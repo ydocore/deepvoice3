@@ -3,5 +3,6 @@
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/nnmnkwii" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/vctk_preprocess/latest_features/merlin" vcs="Git" />
   </component>
 </project>

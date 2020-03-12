@@ -18,7 +18,7 @@ options:
     -t <txt_pattern> --txt_pattern=<txt_pattern> Pattern of txt transcript files to be aligned (same name required)
     --nested-directories=<main_directory>        Process every wav/txt file in the subfolders of the given folder
     --server_addr=<server_addr>                  Server address that serves gentle. [default: localhost]
-    --port=<port>                                Server port that serves gentle. [default: 8567]
+    --port=<port>                                Server port that serves gentle. [default: 8765]
     --max_unalign=<max_unalign>                  Maximum threshold for unalignment occurence (0.0 ~ 1.0) [default: 0.3] 
     --skip-already-done                          Skips if there are preexisting .lab file
     -h --help                                    show this help message and exit

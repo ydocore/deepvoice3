@@ -5,14 +5,23 @@ usage: load_test.py <in_dir> <out_dir>
 
 from docopt import docopt
 import numpy as np
-from train import LinearSpecDataSource, SpDataSource, ApDataSource, MelSpecDataSource,FileSourceDataset
+#from train import LinearSpecDataSource, SpDataSource, ApDataSource, MelSpecDataSource,FileSourceDataset
 import os
 from os.path import join
 from tqdm import tqdm
 import time
 import audio
 import matplotlib.pyplot as plt
+import glob
 
+mel_list = glob.glob("./data_vctk/vctk-mel-*")
+for mel_name in mel_list:
+  mel = np.load(mel_name)
+  plt.imshow(mel.T, extent=[0,mel.shape[1],0,80])
+  plt.title(mel_name)
+  a=0
+
+'''
 if __name__ == '__main__':
     args = docopt(__doc__)
     print("Command line args:\n", args)
@@ -27,7 +36,7 @@ if __name__ == '__main__':
         plt.title('num %05d'%i)
         plt.show()
         a = 0
-    '''
+    
     SP = FileSourceDataset(SpDataSource(in_dir, speaker_id))
     AP = FileSourceDataset(ApDataSource("./data_world/", speaker_id))
     for i, (sp, ap) in tqdm(enumerate(zip(SP,AP),1)):

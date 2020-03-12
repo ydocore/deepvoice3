@@ -30,10 +30,10 @@ if __name__ == "__main__":
     out_dir = args["<out_dir>"]
 
     for idx in tqdm(range(len(vctk.available_speakers))):
-        speaker = vctk.available_speakers[idx]
+        speaker = 376#vctk.available_speakers[idx]
 
-        wav_root = join(data_root, "wav48/p{}".format(speaker))
-        txt_root = join(data_root, "txt/p{}".format(speaker))
+        wav_root = join(data_root, "wav48/p{}/".format(speaker))
+        txt_root = join(data_root, "txt/p{}/".format(speaker))
         assert exists(wav_root)
         assert exists(txt_root)
         print(wav_root, txt_root)

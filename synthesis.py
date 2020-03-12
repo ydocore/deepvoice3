@@ -11,7 +11,7 @@ options:
     --checkpoint-postnet=<path>       Load postnet model from checkpoint path.
     --file-name-suffix=<s>            File name suffix [default: ].
     --max-decoder-steps=<N>           Max decoder steps [default: 500].
-    --replace_pronunciation_prob=<N>  Prob [default: 1.0].
+    --replace_pronunciation_prob=<N>  Prob [default: 0.5].
     --speaker_id=<id>                 Speaker ID (for multi-speaker model).
     --output-html                     Output html for blog post.
     -h, --help               Show help message.

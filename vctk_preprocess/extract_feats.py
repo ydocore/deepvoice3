@@ -1067,7 +1067,7 @@ def save_numpy_features():
                      "durations": arr(all_durations[i]),
                      "text": arr(all_text[i]),
                      #"text_features": arr(all_in_features[i]),
-                     #"text_norminfo": label_norm,
+                     "text_norminfo": label_norm,
                      "audio_features": arr(all_out_features[i]),
                      #"audio_norminfo": audio_norm,
                      "mgc_extent": arr(60),
