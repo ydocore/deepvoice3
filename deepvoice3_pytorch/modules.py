@@ -82,10 +82,10 @@ def Linear_relu(in_features, out_features, dropout=0):
     return nn.utils.weight_norm(m)
 
 
-def Embedding(num_embeddings, embedding_dim, padding_idx, std=0.01):
+def Embedding(num_embeddings, embedding_dim, padding_idx, std=1.0):
     m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
     #m.weight.data.normal_(0, std)
-    m.weight.data.uniform_(-1.0, 1.0)
+    m.weight.data.uniform_(-std, std)
     return m
 
 

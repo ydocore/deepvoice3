@@ -62,7 +62,7 @@ hparams = hparam_tf.hparam.HParams(
     # Model:
     outputs_per_step=4,  # must be 1 when builder="nyanko"
     embedding_weight_std=1,
-    speaker_embedding_weight_std=0.01,
+    speaker_embedding_weight_std=0.1,
     padding_idx=0,
     # Maximum number of input text length
     # try setting larger value if you want to give very long text input
