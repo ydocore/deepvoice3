@@ -571,7 +571,7 @@ if __name__ == "__main__":
         frame_lengths, batch_size=hparams.batch_size)
 
     # Dataset and Dataloader setup
-    dataset = PyTorchDataset(X, Mel, Y)
+    dataset = PyTorchDataset(X, Mel, F0, SP, AP)
     data_loader = data_utils.DataLoader(
         dataset, batch_size=hparams.batch_size,
         num_workers=hparams.num_workers, sampler=sampler,
