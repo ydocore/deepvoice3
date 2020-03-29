@@ -31,11 +31,12 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
                value_projection=False,
                world_upsample = 1,
                sp_fft_size=1025,
-               only_seq2seq=False
+               only_seq2seq=False,
+               isLinear=True
                ):
     """Build deepvoice3
     """
-    from deepvoice3_pytorch.deepvoice3 import Encoder, Decoder, Converter
+    from deepvoice3_pytorch.deepvoice3 import Encoder, Decoder, LinearConverter, WorldConverter
 
     # Seq2seq
     h = encoder_channels  # hidden dim (channels)
@@ -89,12 +90,20 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
         in_dim = mel_dim
     h = converter_channels
     k = kernel_size
-    converter = Converter(
-        n_speakers=n_speakers, speaker_embed_dim=speaker_embed_dim,
-        in_dim=in_dim, out_dim=linear_dim, dropout=dropout,
-        time_upsampling=world_upsample, r=r,
-        convolutions=[(h,k,1),]*num_converter_layer,sp_dim=sp_fft_size
-    )
+
+    #Linear or world parameter
+    if isLinear:
+        converter = LinearConverter(
+            n_speakers=n_speakers, speaker_embed_dim=speaker_embed_dim,
+            in_dim=in_dim, out_dim=linear_dim, dropout=dropout, r=r,
+            convolutions=[(h,k,1),]*num_converter_layer
+        )
+    else:
+        converter = WorldConverter(
+            n_speakers=n_speakers, speaker_embed_dim=speaker_embed_dim,
+            in_dim=in_dim, out_dim=sp_fft_size, dropout=dropout, r=r, time_upsampling=world_upsample,
+            convolutions=[(h, k, 1), ] * num_converter_layer
+        )
 
     scale_speaker_embed = num_encoder_layer + 2 + num_decoder_layer * 2 + 2 + num_converter_layer + 1
 

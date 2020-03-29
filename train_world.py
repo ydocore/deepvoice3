@@ -57,6 +57,9 @@ from torch.utils.tensorboard import SummaryWriter
 from matplotlib import cm
 from warnings import warn
 from hparams import hparams, hparams_debug_string
+from training_module import TextDataSource, MelSpecDataSource, F0DataSource, \
+    SpDataSource, ApDataSource,\
+    PartialyRandomizedSimilarTimeLengthSampler, eval_model, save_states
 
 
 global_step = 0
@@ -97,173 +100,10 @@ def plot_alignment(alignment, path, info=None):
     plt.close()
 
 
-class TextDataSource(FileDataSource):
-    def __init__(self, data_root, speaker_id=None):
-        self.data_root = data_root
-        self.speaker_ids = None
-        self.multi_speaker = False
-        # If not None, filter by speaker_id
-        self.speaker_id = speaker_id
-
-    def collect_files(self):
-        meta = join(self.data_root, "train.txt") 
-        with open(meta, "rb") as f:
-            lines = f.readlines()
-        l = lines[0].decode("utf-8").split("|")
-        assert len(l) == 8 or len(l) == 9
-        self.multi_speaker = len(l) == 9
-        texts = list(map(lambda l: l.decode("utf-8").split("|")[7], lines))
-        if self.multi_speaker:
-            speaker_ids = list(map(lambda l: int(l.decode("utf-8").split("|")[-1]), lines))
-            # Filter by speaker_id
-            # using multi-speaker dataset as a single speaker dataset
-            if self.speaker_id is not None:
-                indices = np.array(speaker_ids) == self.speaker_id
-                texts = list(np.array(texts)[indices])
-                self.multi_speaker = False
-                return texts
-
-            return texts, speaker_ids
-        else:
-            return texts
-
-    def collect_features(self, *args):
-        if self.multi_speaker:
-            text, speaker_id = args
-        else:
-            text = args[0]
-        global _frontend
-        if _frontend is None:
-            _frontend = getattr(frontend, hparams.frontend)
-        seq = _frontend.text_to_sequence(text, p=hparams.replace_pronunciation_prob)
-
-        if platform.system() == "Windows":
-            if hasattr(hparams, 'gc_probability'):
-                _frontend = None  # memory leaking prevention in Windows
-                if np.random.rand() < hparams.gc_probability:
-                    gc.collect()  # garbage collection enforced
-                    print("GC done")
-
-        if self.multi_speaker:
-            return np.asarray(seq, dtype=np.int32), int(speaker_id)
-        else:
-            return np.asarray(seq, dtype=np.int32)
-
-
-class _NPYDataSource(FileDataSource):
-    def __init__(self, data_root, col, speaker_id=None):
-        self.data_root = data_root
-        self.col = col
-        self.frame_lengths = []
-        self.world_lengths = []
-        self.speaker_id = speaker_id
-
-    def collect_files(self):
-        meta = join(self.data_root, "train.txt")
-        with open(meta, "rb") as f:
-            lines = f.readlines()
-        l = lines[0].decode("utf-8").split("|")
-        assert len(l) == 8 or len(l) == 9
-        multi_speaker = len(l) == 9
-        self.frame_lengths = list(
-            map(lambda l: int(l.decode("utf-8").split("|")[2]), lines))
-        self.world_lengths = list(
-            map(lambda l: int(l.decode("utf-8").split("|")[6]), lines))
-
-        paths = list(map(lambda l: l.decode("utf-8").split("|")[self.col], lines))
-        paths = list(map(lambda f: join(self.data_root, f), paths))
-
-        if multi_speaker and self.speaker_id is not None:
-            speaker_ids = list(map(lambda l: int(l.decode("utf-8").split("|")[-1]), lines))
-            # Filter by speaker_id
-            # using multi-speaker dataset as a single speaker dataset
-            indices = np.array(speaker_ids) == self.speaker_id
-            paths = list(np.array(paths)[indices])
-            self.frame_lengths = list(np.array(self.frame_lengths)[indices])
-            # aha, need to cast numpy.int64 to int
-            self.frame_lengths = list(map(int, self.frame_lengths))
-
-        return paths
-
-    def collect_features(self, path):
-        return np.load(path)
-
-
-class MelSpecDataSource(_NPYDataSource):
-    def __init__(self, data_root, speaker_id=None):
-        super(MelSpecDataSource, self).__init__(data_root, 1, speaker_id)
-
-
-class LinearSpecDataSource(_NPYDataSource):
-    def __init__(self, data_root, speaker_id=None):
-        super(LinearSpecDataSource, self).__init__(data_root, 0, speaker_id)
-
-class F0DataSource(_NPYDataSource):
-    def __init__(self, data_root, speaker_id=None):
-        super(F0DataSource, self).__init__(data_root, 3, speaker_id)
-
-class SpDataSource(_NPYDataSource):
-    def __init__(self, data_root, speaker_id=None):
-        super(SpDataSource, self).__init__(data_root, 4, speaker_id)
-
-
-class ApDataSource(_NPYDataSource):
-    def __init__(self, data_root, speaker_id=None):
-        super(ApDataSource, self).__init__(data_root, 5, speaker_id)
-
-
-class PartialyRandomizedSimilarTimeLengthSampler(Sampler):
-    """Partially randmoized sampler
-
-    1. Sort by lengths
-    2. Pick a small patch and randomize it
-    3. Permutate mini-batchs
-    """
-
-    def __init__(self, lengths, batch_size=16, batch_group_size=None,
-                 permutate=True):
-        self.lengths, self.sorted_indices = torch.sort(torch.LongTensor(lengths))
-        self.batch_size = batch_size
-        if batch_group_size is None:
-            batch_group_size = min(batch_size * 32, len(self.lengths))
-            if batch_group_size % batch_size != 0:
-                batch_group_size -= batch_group_size % batch_size
-
-        self.batch_group_size = batch_group_size
-        assert batch_group_size % batch_size == 0
-        self.permutate = permutate
-
-    def __iter__(self):
-        indices = self.sorted_indices.clone()
-        batch_group_size = self.batch_group_size
-        s, e = 0, 0
-        for i in range(len(indices) // batch_group_size):
-            s = i * batch_group_size
-            e = s + batch_group_size
-            random.shuffle(indices[s:e])
-
-        # Permutate batches
-        if self.permutate:
-            perm = np.arange(len(indices[:e]) // self.batch_size)
-            random.shuffle(perm)
-            indices[:e] = indices[:e].view(-1, self.batch_size)[perm, :].view(-1)
-
-        # Handle last elements
-        s += batch_group_size
-        if s < len(indices):
-            random.shuffle(indices[s:])
-
-        return iter(indices)
-
-    def __len__(self):
-        return len(self.sorted_indices)
-
-
 class PyTorchDataset(object):
-    def __init__(self, X, Mel, Y, F0, SP, AP):
+    def __init__(self, X, Mel, F0, SP, AP):
         self.X = X
         self.Mel = Mel
-        self.Y = Y
         self.F0 = F0
         self.SP = SP
         self.AP = AP
@@ -273,9 +113,9 @@ class PyTorchDataset(object):
     def __getitem__(self, idx):
         if self.multi_speaker:
             text, speaker_id = self.X[idx]
-            return text, self.Mel[idx], self.Y[idx], self.F0[idx], self.SP[idx], self.AP[idx], speaker_id
+            return text, self.Mel[idx], self.F0[idx],self.SP[idx], self.AP[idx], speaker_id
         else:
-            return self.X[idx], self.Mel[idx], self.Y[idx], self.F0[idx], self.SP[idx], self.AP[idx]
+            return self.X[idx], self.Mel[idx], self.F0[idx],self.SP[idx], self.AP[idx]
 
 
     def __len__(self):
@@ -285,7 +125,7 @@ class PyTorchDataset(object):
 def collate_fn(batch):
     """Create batch"""
     r = hparams.outputs_per_step
-    multi_speaker = len(batch[0]) == 7
+    multi_speaker = len(batch[0]) == 6
 
     # Lengths
     input_lengths = [len(x[0]) for x in batch]
@@ -321,20 +161,14 @@ def collate_fn(batch):
                  dtype=np.float32)
     mel_batch = torch.FloatTensor(b)
 
-    c = np.array([_pad_2d(x[2], max_target_len, b_pad=b_pad) for x in batch],
-                 dtype=np.float32)
-    y_batch = torch.FloatTensor(c)
-
-
     rw = int(r * hparams.world_upsample)
 
-    d = np.array([np.pad(x[3], (rw, max_world_len-len(x[3])-rw), mode = "constant") for x in batch],dtype=np.float32)
+    d = np.array([np.pad(x[3], (rw, max_world_len - len(x[3]) - rw), mode="constant") for x in batch], dtype=np.float32)
     f0_batch = torch.FloatTensor(d)
-    e = np.array([_pad_2d(x[4], max_world_len, b_pad=rw) for x in batch],dtype=np.float32)
+    e = np.array([_pad_2d(x[4], max_world_len, b_pad=rw) for x in batch], dtype=np.float32)
     sp_batch = torch.FloatTensor(e)
-    f = np.array([_pad_2d(x[5], max_world_len, b_pad=rw) for x in batch],dtype=np.float32)
+    f = np.array([_pad_2d(x[5], max_world_len, b_pad=rw) for x in batch], dtype=np.float32)
     ap_batch = torch.FloatTensor(f)
-
 
     # text positions
     text_positions = np.array([_pad(np.arange(1, len(x[0]) + 1), max_input_len)
@@ -356,18 +190,20 @@ def collate_fn(batch):
                      for x in batch])
     done = torch.FloatTensor(done).unsqueeze(-1)
 
-    #voiced flags
-    voiced = np.array([np.pad(x[3]!=0, (rw, max_world_len-len(x[3])-rw), mode = "constant") for x in batch],dtype=np.float32)
+    # voiced flags
+    voiced = np.array([np.pad(x[3] != 0, (rw, max_world_len - len(x[3]) - rw), mode="constant") for x in batch],
+                      dtype=np.float32)
     voiced_batch = torch.FloatTensor(voiced)
 
+    y_batch = (voiced_batch, f0_batch, sp_batch, ap_batch)
+
     if multi_speaker:
-        speaker_ids = torch.LongTensor([x[6] for x in batch])
+        speaker_ids = torch.LongTensor([x[3] for x in batch])
     else:
         speaker_ids = None
 
     return x_batch, input_lengths, mel_batch, y_batch, \
-        (text_positions, frame_positions), done, target_lengths, speaker_ids, \
-         f0_batch, sp_batch, ap_batch, voiced_batch, world_lengths
+        (text_positions, frame_positions), done, target_lengths, speaker_ids
 
 
 def time_string():
@@ -385,178 +221,6 @@ def prepare_spec_image(spectrogram):
     spectrogram = np.flip(spectrogram, axis=1)  # flip against freq axis
     return np.uint8(cm.magma(spectrogram.T) * 255)
 
-
-def eval_model(global_step, writer, device, model, checkpoint_dir, ismultispeaker):
-    # harded coded
-    texts = [
-        "And debtors might practically have as much as they liked%if they could only pay for it.",
-        "There's a way to measure the acute emotional intelligence that has never gone out of style.",
-        "President trump met with other leaders at the group of 20 conference.",
-        "Generative adversarial network or variational auto encoder.",
-        "Please call stella.",
-        "Some have accepted this as a miracle without any physical explanation.",
-    ]
-    import synthesis
-    synthesis._frontend = _frontend
-
-    eval_output_dir = join(checkpoint_dir, "eval")
-    os.makedirs(eval_output_dir, exist_ok=True)
-
-    # Prepare model for evaluation
-    model_eval = build_model().to(device)
-    model_eval.load_state_dict(model.state_dict())
-
-    # hard coded
-    speaker_ids = [0, 1, 10] if ismultispeaker else [None]
-    for speaker_id in speaker_ids:
-        speaker_str = "multispeaker{}".format(speaker_id) if speaker_id is not None else "single"
-
-        for idx, text in enumerate(texts, 1):
-            signal, alignments, _, mel, world = synthesis.tts(
-                model_eval, text, p=1, speaker_id=speaker_id, fast=True)
-            signal /= np.max(np.abs(signal))
-
-            # Alignment
-            for i, alignment in enumerate(alignments, 1):
-                alignment_dir = join(eval_output_dir, "alignment_layer{}".format(i))
-                os.makedirs(alignment_dir, exist_ok=True)
-                path = join(alignment_dir, "step{:09d}_text{}_{}_layer{}_alignment.png".format(
-                    global_step, idx, speaker_str, i))
-                save_alignment(path, alignment)
-                tag = "eval_text_{}_alignment_layer{}_{}".format(idx, i, speaker_str)
-                writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1)) * 255).T, global_step)
-
-            # Mel
-            writer.add_image("(Eval) Predicted mel spectrogram text{}_{}".format(idx, speaker_str),
-                             prepare_spec_image(mel).transpose(2,0,1), global_step)
-
-            # Audio
-            path = join(eval_output_dir, "step{:09d}_text{}_{}_predicted.wav".format(
-                global_step, idx, speaker_str))
-            audio.save_wav(signal, path)
-            path = join(eval_output_dir, "step{:09d}_text{}_{}_world.wav".format(
-                global_step, idx, speaker_str))
-            audio.save_wav(world, path)
-
-            try:
-                writer.add_audio("(Eval) Predicted audio signal {}_{}".format(idx, speaker_str),
-                                 signal, global_step, sample_rate=hparams.sample_rate)
-                writer.add_audio("(Eval) WORLD audio signal {}_{}".format(idx, speaker_str),
-                                 world, global_step, sample_rate=hparams.sample_rate)
-            except Exception as e:
-                warn(str(e))
-                pass
-
-
-def save_states(global_step, writer, mel_outputs, linear_outputs, attn, mel, y,
-                input_lengths, f0s, sps, aps, tar_f0, tar_sp, tar_ap, checkpoint_dir=None):
-    print("Save intermediate states at step {}".format(global_step))
-
-    # idx = np.random.randint(0, len(input_lengths))
-    idx = min(1, len(input_lengths) - 1)
-    input_length = input_lengths[idx]
-
-    # Alignment
-    # Multi-hop attention
-    if attn is not None and attn.dim() == 4:
-        for i, alignment in enumerate(attn):
-            alignment = alignment[idx].cpu().data.numpy()
-            tag = "alignment_layer{}".format(i + 1)
-            writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1)) * 255).T, global_step) #転置消去
-
-            # save files as well for now
-            alignment_dir = join(checkpoint_dir, "alignment_layer{}".format(i + 1))
-            os.makedirs(alignment_dir, exist_ok=True)
-            path = join(alignment_dir, "step{:09d}_layer_{}_alignment.png".format(
-                global_step, i + 1))
-            save_alignment(path, alignment)
-
-    # Predicted mel spectrogram
-    if mel_outputs is not None:
-        mel_output = mel_outputs[idx].cpu().data.numpy()
-        mel_output = prepare_spec_image(audio._denormalize(mel_output))
-        writer.add_image("Predicted mel spectrogram", mel_output.transpose(2,0,1), global_step)
-
-    # Predicted spectrogram
-    if linear_outputs is not None:
-        linear_output = linear_outputs[idx].cpu().data.numpy()
-        spectrogram = prepare_spec_image(audio._denormalize(linear_output))
-        writer.add_image("Predicted linear spectrogram", spectrogram.transpose(2,0,1), global_step)
-
-        # Predicted audio signal
-        signal = audio.inv_spectrogram(linear_output.T)
-        signal /= np.max(np.abs(signal))
-        path = join(checkpoint_dir, "step{:09d}_predicted.wav".format(
-            global_step))
-        try:
-            writer.add_audio("Predicted audio signal", signal, global_step, sample_rate=hparams.sample_rate)
-        except Exception as e:
-            warn(str(e))
-            pass
-        #audio.save_wav(signal, path)
-
-
-    #Predicted world parameter
-    if f0s is not None:
-        fig = plt.figure()
-        f0 = f0s[idx].cpu().data.numpy() * 400
-        ax = fig.add_subplot(1,1,1)
-        ax.plot(f0)
-        writer.add_figure('Predicted f0', fig, global_step)
-
-        #sp save
-        sp = sps[idx].cpu().data.numpy()
-        s = prepare_spec_image(sp)
-        writer.add_image("Predicted sp",s.transpose(2,0,1), global_step)
-
-        #ap save
-        ap = aps[idx].cpu().data.numpy()
-        a = prepare_spec_image(ap)
-        writer.add_image("Predicted ap", a.transpose(2,0,1), global_step)
-
-        #world vocoder
-        world = audio.world_synthesize(f0, sp, ap)
-        world /= np.max(np.abs(world))
-        path = join(checkpoint_dir, "step{:09d}_predicted_world.wav".format(
-            global_step))
-        try:
-            writer.add_audio("Predicted world signal", world, global_step, sample_rate=hparams.sample_rate)
-        except Exception as e:
-            warn(str(e))
-            pass
-        #audio.save_wav(world, path)
-
-
-    # Target mel spectrogram
-    if mel_outputs is not None:
-        mel_output = mel[idx].cpu().data.numpy()
-        mel_output = prepare_spec_image(audio._denormalize(mel_output))
-        writer.add_image("Target mel spectrogram", mel_output.transpose(2,0,1), global_step)
-
-    # Target spectrogram
-    if linear_outputs is not None:
-        linear_output = y[idx].cpu().data.numpy()
-        spectrogram = prepare_spec_image(audio._denormalize(linear_output))
-        writer.add_image("Target linear spectrogram", spectrogram.transpose(2,0,1), global_step)
-
-
-    # Predicted world parameter
-    if f0s is not None:
-        fig = plt.figure()
-        f0 = tar_f0[idx].cpu().data.numpy() * 400
-        ax = fig.add_subplot(1, 1, 1)
-        ax.plot(f0)
-        writer.add_figure('Target f0', fig, global_step)
-
-        # sp save
-        sp = tar_sp[idx].cpu().data.numpy()
-        s = prepare_spec_image(sp)
-        writer.add_image("Target sp", s.transpose(2, 0, 1), global_step)
-
-        # ap save
-        ap = tar_ap[idx].cpu().data.numpy()
-        a = prepare_spec_image(ap)
-        writer.add_image("Target ap", a.transpose(2, 0, 1), global_step)
 
 
 def logit(x, eps=1e-8):
@@ -581,8 +245,7 @@ def train(device, model, data_loader, optimizer, writer,
     while global_epoch < nepochs:
         running_loss = 0.
         print("{}epoch:".format(global_epoch))
-        for step, (x, input_lengths, mel, y, positions, done, target_lengths,
-                   speaker_ids, f0, sp, ap, voiced, world_lengths) \
+        for step, (x, input_lengths, mel, y, positions, done, target_lengths, speaker_ids) \
                 in tqdm(enumerate(data_loader)):
             model.train()
             ismultispeaker = speaker_ids is not None
@@ -616,19 +279,18 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
                 text_positions = text_positions.to(device)
                 frame_positions = frame_positions.to(device)
             if train_postnet:
-                y = y.to(device)
+                voiced, f0, sp, ap  = y
                 f0 = f0.to(device)
                 sp = sp.to(device)
                 ap = ap.to(device)
                 voiced = voiced.to(device)
-                world_lengths = world_lengths.to(device)
             mel, done = mel.to(device), done.to(device)
             target_lengths = target_lengths.to(device)
             speaker_ids = speaker_ids.to(device) if ismultispeaker else None
 
             # Apply model
             if train_seq2seq and train_postnet:
-                mel_outputs, linear_outputs, attn, done_hat, vo_hat, f0_outputs, sp_outputs, ap_outputs= model(
+                mel_outputs, world_outputs, attn, done_hat= model(
                     x, mel, speaker_ids=speaker_ids,
                     text_positions=text_positions, frame_positions=frame_positions,
                     input_lengths=input_lengths)
@@ -640,7 +302,7 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
                     input_lengths=input_lengths)
                 # reshape
                 mel_outputs = mel_outputs.view(len(mel), -1, mel.size(-1))
-                linear_outputs, f0_outputs, sp_outputs, ap_outputs, vo_hat = None, None, None, None, None
+                linear_outputs,  = None
             elif train_postnet:
                 assert speaker_ids is None
                 linear_outputs = model.postnet(mel)
@@ -650,34 +312,31 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
             # Losses
             # mel:
             if train_seq2seq:
-                #import pdb; pdb.set_trace()
                 mel_loss = l1(mel_outputs[:, :-r, :], mel[:, r:, :])
-
-            # done:
-            if train_seq2seq:
+                # done:
                 done_loss = binary_criterion(done_hat, done)
 
             # Converter
             if train_postnet:
-                linear_loss = l1(linear_outputs[:, :-r, :], y[:, r:, :])
                 rw = int(r * hparams.world_upsample)
-                f0_loss = l1(f0_outputs[:,:-rw],f0[:,rw:])
-                sp_loss = l1(sp_outputs[:,:-rw,:],sp[:,rw:,:])
-                ap_loss = l1(ap_outputs[:,:-rw,:],ap[:,rw:,:])
-                voiced_loss = binary_criterion(vo_hat[:,:-rw],voiced[:,rw:])
+                vo_hat, f0_outputs, sp_outputs, ap_outputs = world_outputs
+                f0_loss = l1(f0_outputs[:, :-rw], f0[:, rw:])
+                sp_loss = l1(sp_outputs[:, :-rw, :], sp[:, rw:, :])
+                ap_loss = l1(ap_outputs[:, :-rw, :], ap[:, rw:, :])
+                voiced_loss = binary_criterion(vo_hat[:, :-rw], voiced[:, rw:])
 
             # Combine losses
             if train_seq2seq and train_postnet:
-                loss = mel_loss + linear_loss + done_loss + f0_loss + sp_loss + ap_loss + voiced_loss
+                loss = mel_loss + done_loss + f0_loss + sp_loss + ap_loss + voiced_loss
             elif train_seq2seq:
                 loss = mel_loss + done_loss
             elif train_postnet:
-                loss = linear_loss + f0_loss + sp_loss + ap_loss + voiced_loss
+                loss = f0_loss + sp_loss + ap_loss + voiced_loss
 
             if global_epoch == 0 and global_step == 0:
                 save_states(
                     global_step, writer, mel_outputs, linear_outputs, attn,
-                    mel, y, input_lengths, f0_outputs, sp_outputs, ap_outputs, f0, sp, ap, checkpoint_dir)
+                    mel, y, input_lengths, checkpoint_dir)
 
 
             # Update
@@ -693,17 +352,12 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
             writer.add_scalar("loss", float(loss.item()), global_step)
             if train_seq2seq:
                 writer.add_scalar("done_loss", float(done_loss.item()), global_step)
-                #writer.add_scalar("mel loss", float(mel_loss.item()), global_step)
                 writer.add_scalar("mel_l1_loss", float(mel_loss.item()), global_step)
-                #writer.add_scalar("mel_binary_div_loss", float(mel_binary_div.item()), global_step)
             if train_postnet:
-                #writer.add_scalar("linear_loss", float(linear_loss.item()), global_step)
-                writer.add_scalar("linear_l1_loss", float(linear_loss.item()), global_step)
-                #writer.add_scalar("linear_binary_div_loss", float(linear_binary_div.item()), global_step)
-                writer.add_scalar("f0_l1_loss",float(f0_loss.item()), global_step)
-                writer.add_scalar("sp_l1_loss",float(sp_loss.item()), global_step)
-                writer.add_scalar("ap_l1_loss",float(ap_loss.item()), global_step)
-                writer.add_scalar("voiced_loss",float(voiced_loss.item()), global_step)
+                writer.add_scalar("f0_l1_loss", float(f0_loss.item()), global_step)
+                writer.add_scalar("sp_l1_loss", float(sp_loss.item()), global_step)
+                writer.add_scalar("ap_l1_loss", float(ap_loss.item()), global_step)
+                writer.add_scalar("voiced_loss", float(voiced_loss.item()), global_step)
             if clip_thresh > 0:
                 writer.add_scalar("gradient norm", grad_norm, global_step)
             writer.add_scalar("learning rate", current_lr, global_step)
@@ -714,7 +368,7 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
             if global_step > 0 and global_step % checkpoint_interval == 0:
                 save_states(
                     global_step, writer, mel_outputs, linear_outputs, attn,
-                    mel, y, input_lengths, f0_outputs, sp_outputs, ap_outputs, f0, sp, ap, checkpoint_dir)
+                    mel, y, input_lengths, checkpoint_dir)
                 save_checkpoint(
                     model, optimizer, global_step, checkpoint_dir, global_epoch,
                     train_seq2seq, train_postnet)
@@ -786,6 +440,7 @@ def build_model():
         window_backward=hparams.window_backward,
         world_upsample=hparams.world_upsample,
         sp_fft_size=hparams.sp_fft_size,
+        isLinear=False
     )
     return model
 
@@ -905,15 +560,9 @@ if __name__ == "__main__":
     # Input dataset definitions
     X = FileSourceDataset(TextDataSource(data_root, speaker_id))
     Mel = FileSourceDataset(MelSpecDataSource(data_root, speaker_id))
-    Y = FileSourceDataset(LinearSpecDataSource(data_root, speaker_id))
     F0 = FileSourceDataset(F0DataSource(data_root, speaker_id))
     SP = FileSourceDataset(SpDataSource(data_root, speaker_id))
-    AP = FileSourceDataset(ApDataSource(data_root,speaker_id))
-    if not train_postnet:
-        Y = [np.zeros((1,1)),]*13056
-        F0 = [np.zeros(1),]*13056
-        SP = [np.zeros((1,1)),]*13056
-        AP = [np.zeros((1,1)),]*13056
+    AP = FileSourceDataset(ApDataSource(data_root, speaker_id))
 
 
     # Prepare sampler
@@ -922,7 +571,7 @@ if __name__ == "__main__":
         frame_lengths, batch_size=hparams.batch_size)
 
     # Dataset and Dataloader setup
-    dataset = PyTorchDataset(X, Mel, Y, F0, SP, AP)
+    dataset = PyTorchDataset(X, Mel, Y)
     data_loader = data_utils.DataLoader(
         dataset, batch_size=hparams.batch_size,
         num_workers=hparams.num_workers, sampler=sampler,

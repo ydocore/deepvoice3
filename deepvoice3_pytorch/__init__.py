@@ -95,10 +95,9 @@ class MultiSpeakerTTSModel(nn.Module):
         # (B, T, linear_dim)
         # Convert coarse mel-spectrogram (or decoder hidden states) to
         # high resolution spectrogram
-        linear_outputs, voiced, f0, sp, ap = self.postnet(postnet_inputs, speaker_embed)
-        assert linear_outputs.size(-1) == self.linear_dim
+        vocoder_parameter = self.postnet(postnet_inputs, speaker_embed)
 
-        return mel_outputs, linear_outputs, alignments, done, voiced, f0, sp, ap
+        return mel_outputs, vocoder_parameter, alignments, done
 
 class MultispeakerSeq2seq(nn.Module):
     def __init__(self, seq2seq, mel_dim=80,

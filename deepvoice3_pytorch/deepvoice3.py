@@ -62,10 +62,8 @@ class Encoder(nn.Module):
         x = self.embed_tokens(text_sequences.long())
 
         # expand speaker embedding for all time steps
-        speaker_embed_btc = expand_speaker_embed(x, speaker_embed)
-        if speaker_embed_btc is not None:
-            #speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.dropout, training=self.training)
-            x = x + F.softsign(self.speaker_fc1(speaker_embed_btc))
+        if speaker_embed is not None:
+            x = x + F.softsign(self.speaker_fc1(speaker_embed))[:,None,:]
 
         input_embedding = x
 
@@ -76,15 +74,15 @@ class Encoder(nn.Module):
 
         # １D conv blocks
         for f in self.convolutions:
-            x = f(x, speaker_embed_btc) if isinstance(f, Conv1dGLU) else f(x)
+            x = f(x, speaker_embed) if isinstance(f, Conv1dGLU) else f(x)
 
         # Back to B x T x C
         x = x.transpose(1, 2)
         x = self.linear(x)
         keys = x
 
-        if speaker_embed_btc is not None:
-            keys = keys + F.softsign(self.speaker_fc2(speaker_embed_btc))
+        if speaker_embed is not None:
+            keys = keys + F.softsign(self.speaker_fc2(speaker_embed))[:,None,:]
 
         # scale gradients (this only affects backward, not forward)
         if self.apply_grad_scaling and self.num_attention_layers is not None:
@@ -291,15 +289,12 @@ class Decoder(nn.Module):
 
         x = inputs
 
-        # expand speaker embedding for all time steps
-        speaker_embed_btc = expand_speaker_embed(inputs, speaker_embed)
-
         # Prenet
         for i, (f, sf) in enumerate(zip(self.preattention, self.speaker_fc)):
             if i > 0:
                 x = F.dropout(x, p=self.dropout, training=self.training)
-            if speaker_embed_btc is not None:
-                x = x + F.softsign(sf(speaker_embed_btc))
+            if speaker_embed is not None:
+                x = x + F.softsign(sf(speaker_embed))[:,None,:]
             x = F.relu(f(x))
 
         # Generic case: B x T x C -> B x C x T
@@ -309,7 +304,7 @@ class Decoder(nn.Module):
         alignments = []
         for i, (f, attention) in enumerate(zip(self.convolutions, self.attention)):
 
-            x = f(x, speaker_embed_btc) if isinstance(f, Conv1dGLU) else f(x)
+            x = f(x, speaker_embed) if isinstance(f, Conv1dGLU) else f(x)
             residual = x
 
             # Feed conv output to attention layer as query
@@ -382,14 +377,11 @@ class Decoder(nn.Module):
                     current_input = outputs[-1]
             x = current_input
 
-            # expand speaker embedding for all time steps
-            speaker_embed_btc = expand_speaker_embed(initial_input, speaker_embed)
-
             # Prenet
             for f, sf in zip(self.preattention, self.speaker_fc):
                 x = F.dropout(x, p=self.dropout, training=self.training)
-                if speaker_embed_btc is not None:
-                    x = x + F.softsign(sf(speaker_embed_btc))
+                if speaker_embed is not None:
+                    x = x + F.softsign(sf(speaker_embed))[:,None,:]
                 x = F.relu(f(x))
 
             # Casual convolutions + Multi-hop attentions
@@ -477,13 +469,10 @@ def _clear_modules(modules):
 
 class Converter(nn.Module):
     def __init__(self, n_speakers, speaker_embed_dim,
-                 in_dim, out_dim, convolutions=((256, 5, 1),) * 4,
-                 time_upsampling=1, r=5, sp_dim=1025,
-                 dropout=0.1):
+                 in_dim, convolutions=((256, 5, 1),) * 4, r=5, dropout=0.1):
         super(Converter, self).__init__()
         self.dropout = dropout
         self.in_dim = in_dim
-        self.out_dim = out_dim
         self.n_speakers = n_speakers
         self.r = r
 
@@ -498,61 +487,64 @@ class Converter(nn.Module):
                           dilation=dilation, dropout=dropout, residual=True))
             in_channels = out_channels
         # Last fully connect
-        self.fc = Linear(in_channels,(sp_dim-1)*self.r)
-
-        in_channels = (sp_dim-1)
-
-        #linear spectrogram fc
-        self.linear_spec = Linear(in_channels,self.out_dim)
-
-        #world parameter
-        self.upsample = nn.Upsample(scale_factor = time_upsampling)
-        self.world = Conv1dGLU(n_speakers, speaker_embed_dim,
-                  in_channels, in_channels, kernel_size, causal=False,
-                  dilation=dilation, dropout=dropout, residual=True)
-        self.voiced = Linear(in_channels,1)
-        self.f0 = Linear(in_channels,1)
-        self.sp = Linear(in_channels,sp_dim)
-        self.ap = Linear(in_channels,sp_dim)
+        self.fc = Linear(in_channels,in_channels*self.r)
 
 
     def forward(self, x, speaker_embed=None):
         assert self.n_speakers == 1 or speaker_embed is not None
-
-        # expand speaker embedding for all time steps
-        speaker_embed_btc = expand_speaker_embed(x, speaker_embed)
-        #if speaker_embed_btc is not None:
-        #    speaker_embed_btc = F.dropout(speaker_embed_btc, p=self.dropout, training=self.training)
-
         # Generic case: B x T x C -> B x C x T
         x = x.transpose(1, 2)
 
         for f in self.convolutions:
-            if speaker_embed_btc is not None and speaker_embed_btc.size(1) != x.size(-1):
-                speaker_embed_btc = expand_speaker_embed(x, speaker_embed, tdim=-1)
-            x = f(x, speaker_embed_btc) if isinstance(f, Conv1dGLU) else f(x)
+            x = f(x, speaker_embed) if isinstance(f, Conv1dGLU) else f(x)
 
         # Back to B x T x C
         x = x.transpose(1, 2)
         x = self.fc(x)
-        x = GradMultiply.apply(x, 0.5)
-        x = x.view(x.size(0), -1, x.size(-1)//self.r)
-        wx = x.transpose(1, 2)
 
-        #linear spectrogram
+        return x.view(x.size(0), -1, x.size(-1)//self.r)
+
+class LinearConverter(nn.Module):
+    def __init__(self, n_speakers, speaker_embed_dim,
+                 in_dim, out_dim, convolutions=((256, 5, 1),) * 4, r=5, dropout=0.1):
+        super(LinearConverter, self).__init__()
+        self.conv_block = Converter(n_speakers, speaker_embed_dim, in_dim, convolutions, r, dropout)
+        in_channels = convolutions[0][0]
+        self.linear_spec = Linear(in_channels, out_dim)
+
+    def forward(self, x, speaker_embed=None):
+        x = self.conv_block(x, speaker_embed)
         x = self.linear_spec(x)
 
-        #world parameter
-        wx = self.upsample(wx)
-        if speaker_embed_btc is not None and speaker_embed_btc.size(1) != wx.size(-1):
-            speaker_embed_btc = expand_speaker_embed(wx, speaker_embed, tdim=-1)
-        wx = self.world(wx, speaker_embed_btc)
-        wx = wx.transpose(1, 2)
-        #WORLDパラメータの勾配をscaling
-        wx = GradMultiply.apply(wx, 0.25)
-        voiced = torch.sigmoid(self.voiced(wx))
-        f0 = self.f0(wx)
-        sp = self.sp(wx)
-        ap = self.ap(wx)
+        return x
 
-        return x.view(x.size(0), -1, self.out_dim), voiced[:,:,0], f0[:,:,0], sp, ap
+class WorldConverter(nn.Module):
+    def __init__(self, n_speakers, speaker_embed_dim,
+                 in_dim, out_dim, convolutions=((256, 5, 1),) * 4,
+                 time_upsampling=1, r=5, dropout=0.1):
+        super(LinearConverter, self).__init__()
+        self.conv_block = Converter(n_speakers, speaker_embed_dim, in_dim, out_dim, convolutions, r, dropout)
+        in_channels = convolutions[0][0]
+
+        # world parameter
+        self.upsample = nn.Upsample(scale_factor=time_upsampling)
+        self.world = Conv1dGLU(n_speakers, speaker_embed_dim,
+                               in_channels, in_channels, kernel_size=5, causal=False,
+                               dilation=1, dropout=dropout, residual=True)
+        self.voiced = Linear(in_channels, 1)
+        self.f0 = Linear(in_channels, 1)
+        self.sp = Linear(in_channels, out_dim)
+        self.ap = Linear(in_channels, out_dim)
+
+    def forward(self, x, speaker_embed=None):
+        x = self.conv_block(x, speaker_embed)
+        x = self.upsample(x.transpose(1,2))
+        x = self.world(x, speaker_embed)
+        x = x.transpose(1,2)
+
+        voiced = torch.sigmoid(self.voiced(x))
+        f0 = self.f0(x)
+        sp = self.sp(x)
+        ap = self.ap(x)
+
+        return (voiced[:,:,0], f0[:,:,0], sp, ap)

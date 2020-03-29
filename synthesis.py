@@ -54,30 +54,32 @@ def tts(model, text, p=0, speaker_id=None, fast=False):
         model.make_generation_fast_()
 
     sequence = np.array(_frontend.text_to_sequence(text, p=p))
-    #import pdb; pdb.set_trace()
     sequence = torch.from_numpy(sequence).unsqueeze(0).long().to(device)
     text_positions = torch.arange(1, sequence.size(-1) + 1).unsqueeze(0).long().to(device)
     speaker_ids = None if speaker_id is None else torch.LongTensor([speaker_id]).to(device)
 
     # Greedy decoding
     with torch.no_grad():
-        mel_outputs, linear_outputs, alignments, done , voiced, f0s, sps, aps = model(
+        mel_outputs, vocoder_parameter, alignments, done = model(
             sequence, text_positions=text_positions, speaker_ids=speaker_ids)
 
-    linear_output = linear_outputs[0].cpu().data.numpy()
-    spectrogram = audio._denormalize(linear_output)
     alignment = alignments[0].cpu().data.numpy()
     mel = mel_outputs[0].cpu().data.numpy()
     mel = audio._denormalize(mel)
-    f0 = f0s[0].cpu().data.numpy() * 400
-    sp = sps[0].cpu().data.numpy()
-    ap = aps[0].cpu().data.numpy()
+    if type(vocoder_parameter) is tuple:
+        _, f0s, sps, aps = vocoder_parameter
+        f0 = f0s[0].cpu().data.numpy() * 400
+        sp = sps[0].cpu().data.numpy()
+        ap = aps[0].cpu().data.numpy()
+        waveform = audio.world_synthesize(f0, sp, ap)
+    else:
+        linear_output = vocoder_parameter[0].cpu().data.numpy()
+        spectrogram = audio._denormalize(linear_output)
+        # Predicted audio signal
+        waveform = audio.inv_spectrogram(linear_output.T)
 
-    # Predicted audio signal
-    waveform = audio.inv_spectrogram(linear_output.T)
-    world = audio.world_synthesize(f0,sp,ap)
 
-    return waveform, alignment, spectrogram, mel, world
+    return waveform, alignment, spectrogram, mel
 
 
 def _load(checkpoint_path):

@@ -156,8 +156,7 @@ class Conv1dGLU(nn.Module):
         if self.speaker_proj is not None:
             softsign = F.softsign(self.speaker_proj(speaker_embed))
             # Since conv layer assumes BCT, we need to transpose
-            softsign = softsign if is_incremental else softsign.transpose(1, 2)
-            a = a + softsign
+            a = a + softsign[:,None,:] if is_incremental else a + softsign[:,:,None]
         x = a * torch.sigmoid(b)
         return (x + residual) * math.sqrt(0.5) if self.residual else x
 
