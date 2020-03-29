@@ -14,10 +14,10 @@ import audio
 import matplotlib.pyplot as plt
 import glob
 
-mel_list = glob.glob("./data_vctk/vctk-spec-438*")
+mel_list = glob.glob("./data_vctk_new/vctk-mel-*")
 for mel_name in mel_list:
   mel = np.load(mel_name)
-  plt.imshow(mel.T, extent=[0,mel.shape[1],0,2049])
+  plt.imshow(mel.T, extent=[0,mel.shape[1],0,80])
   plt.title(mel_name)
   a=0
 

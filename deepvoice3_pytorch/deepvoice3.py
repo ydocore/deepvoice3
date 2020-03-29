@@ -535,6 +535,7 @@ class Converter(nn.Module):
         # Back to B x T x C
         x = x.transpose(1, 2)
         x = self.fc(x)
+        x = GradMultiply.apply(x, 0.5)
         x = x.view(x.size(0), -1, x.size(-1)//self.r)
         wx = x.transpose(1, 2)
 

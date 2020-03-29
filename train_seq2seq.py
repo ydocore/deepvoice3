@@ -52,13 +52,11 @@ matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 import sys
 import os
-from tensorboardX import SummaryWriter
+#from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from matplotlib import cm
 from warnings import warn
 from hparams import hparams, hparams_debug_string
-
-import time
-global_collect = 0
 
 
 global_step = 0
@@ -108,7 +106,7 @@ class TextDataSource(FileDataSource):
         self.speaker_id = speaker_id
 
     def collect_files(self):
-        meta = join(self.data_root, "train.txt") #元はtrain.txt
+        meta = join(self.data_root, "train.txt") 
         with open(meta, "rb") as f:
             lines = f.readlines()
         l = lines[0].decode("utf-8").split("|")
@@ -262,68 +260,28 @@ class PartialyRandomizedSimilarTimeLengthSampler(Sampler):
 
 
 class PyTorchDataset(object):
-    def __init__(self, X, Mel, Y, F0, SP, AP):
+    def __init__(self, X, Mel):
         self.X = X
         self.Mel = Mel
-        self.Y = Y
-        self.F0 = F0
-        self.SP = SP
-        self.AP = AP
         # alias
         self.multi_speaker = X.file_data_source.multi_speaker
 
     def __getitem__(self, idx):
         if self.multi_speaker:
             text, speaker_id = self.X[idx]
-            return text, self.Mel[idx], self.Y[idx], speaker_id, self.F0[idx], self.SP[idx], self.AP[idx]
+            return text, self.Mel[idx], speaker_id
         else:
-            return self.X[idx], self.Mel[idx], self.Y[idx], self.F0[idx], self.SP[idx], self.AP[idx]
+            return self.X[idx], self.Mel[idx]
 
 
     def __len__(self):
         return len(self.X)
 
 
-def sequence_mask(sequence_length, max_len=None):
-    if max_len is None:
-        max_len = sequence_length.data.max()
-    batch_size = sequence_length.size(0)
-    seq_range = torch.arange(0, max_len).long()
-    seq_range_expand = seq_range.unsqueeze(0).expand(batch_size, max_len)
-    if sequence_length.is_cuda:
-        seq_range_expand = seq_range_expand.cuda()
-    seq_length_expand = sequence_length.unsqueeze(1) \
-        .expand_as(seq_range_expand)
-    return (seq_range_expand < seq_length_expand).float()
-
-
-class MaskedL1Loss(nn.Module):
-    def __init__(self):
-        super(MaskedL1Loss, self).__init__()
-        self.criterion = nn.L1Loss(reduction="sum")
-
-    def forward(self, input, target, lengths=None, mask=None, max_len=None):
-        if lengths is None and mask is None:
-            raise RuntimeError("Should provide either lengths or mask")
-
-        # (B, T, 1)
-        if mask is None:
-            mask = sequence_mask(lengths, max_len).unsqueeze(-1)
-
-        # (B, T, D)
-        import pdb; pdb.set_trace()
-        mask_ = mask.expand_as(input)
-        loss = self.criterion(input * mask_, target * mask_)
-        return loss / mask_.sum()
-
-
 def collate_fn(batch):
     """Create batch"""
     r = hparams.outputs_per_step
-    downsample_step = hparams.downsample_step
-    multi_speaker = len(batch[0]) == 9
-
-    #start = time.time()
+    multi_speaker = len(batch[0]) == 3
 
     # Lengths
     input_lengths = [len(x[0]) for x in batch]
@@ -332,57 +290,36 @@ def collate_fn(batch):
     target_lengths = [len(x[1]) for x in batch]
     max_target_len = max(target_lengths)
 
-    world_lengths = [len(x[3]) for x in batch]
-    #max_world_len = int(max_target_len*2.5)
+    if max_input_len % r != 0:
+        max_input_len += r - max_input_len % r
+        assert max_input_len % r == 0
 
     if max_target_len % r != 0:
         max_target_len += r - max_target_len % r
         assert max_target_len % r == 0
-    if max_target_len % downsample_step != 0:
-        max_target_len += downsample_step - max_target_len % downsample_step
-        assert max_target_len % downsample_step == 0
-    '''
-    if max_world_len % r != 0:
-        max_world_len += r - max_world_len % r
-        assert max_world_len % r == 0
-    '''
 
     # Set 0 for zero beginning padding
     # imitates initial decoder states
     b_pad = r
-    max_target_len += b_pad * downsample_step
-    max_world_len = int(max_target_len * hparams.world_upsample)
+    max_target_len += b_pad
 
     a = np.array([_pad(x[0], max_input_len) for x in batch], dtype=np.int)
     x_batch = torch.LongTensor(a)
 
     input_lengths = torch.LongTensor(input_lengths)
     target_lengths = torch.LongTensor(target_lengths)
-    world_lengths = torch.LongTensor(world_lengths)
 
     b = np.array([_pad_2d(x[1], max_target_len, b_pad=b_pad) for x in batch],
                  dtype=np.float32)
     mel_batch = torch.FloatTensor(b)
 
-    c = np.array([_pad_2d(x[2], max_target_len, b_pad=b_pad) for x in batch],
-                 dtype=np.float32)
-    y_batch = torch.FloatTensor(c)
-
-    rw = int(r * hparams.world_upsample)
-
-    d = np.array([np.pad(x[3], (rw, max_world_len-len(x[3])-rw), mode = "constant") for x in batch],dtype=np.float32)
-    f0_batch = torch.FloatTensor(d)
-    e = np.array([_pad_2d(x[4], max_world_len, b_pad=rw) for x in batch],dtype=np.float32)
-    sp_batch = torch.FloatTensor(e)
-    f = np.array([_pad_2d(x[5], max_world_len, b_pad=rw) for x in batch],dtype=np.float32)
-    ap_batch = torch.FloatTensor(f)
 
     # text positions
     text_positions = np.array([_pad(np.arange(1, len(x[0]) + 1), max_input_len)
                                for x in batch], dtype=np.int)
     text_positions = torch.LongTensor(text_positions)
 
-    max_decoder_target_len = max_target_len // r // downsample_step
+    max_decoder_target_len = max_target_len // r
 
     # frame positions
     s, e = 1, max_decoder_target_len + 1
@@ -392,35 +329,26 @@ def collate_fn(batch):
         len(batch), max_decoder_target_len)
 
     # done flags
-    done = np.array([_pad(np.zeros(len(x[1]) // r // downsample_step - 1),
+    done = np.array([_pad(np.zeros(len(x[1]) // r - 1),
                           max_decoder_target_len, constant_values=1)
                      for x in batch])
     done = torch.FloatTensor(done).unsqueeze(-1)
 
-    #voiced flags
-    voiced = np.array([np.pad(x[3]!=0, (rw, max_world_len-len(x[3])-rw), mode = "constant") for x in batch],dtype=np.float32)
-    voiced_batch = torch.FloatTensor(voiced)
-
     if multi_speaker:
-        speaker_ids = torch.LongTensor([x[6] for x in batch])
+        speaker_ids = torch.LongTensor([x[2] for x in batch])
     else:
         speaker_ids = None
 
-    #end = time.time() - start
-    #print('collate-time:{0}'.format(end))
-
-    return x_batch, input_lengths, mel_batch, y_batch, \
-        (text_positions, frame_positions), done, target_lengths, speaker_ids, \
-         f0_batch, sp_batch, ap_batch, voiced_batch, world_lengths
-
+    return x_batch, input_lengths, mel_batch, \
+        (text_positions, frame_positions), done, target_lengths, speaker_ids
 
 def time_string():
     return datetime.now().strftime('%Y-%m-%d %H:%M')
 
 
 def save_alignment(path, attn):
-    plot_alignment(attn.T, path, info="{}, {}, epoch={}".format(
-        hparams.builder, time_string(), global_epoch))
+    plot_alignment(attn.T, path, info="{}, {}, step={}".format(
+        hparams.builder, time_string(), global_step))
 
 
 def prepare_spec_image(spectrogram):
@@ -430,15 +358,15 @@ def prepare_spec_image(spectrogram):
     return np.uint8(cm.magma(spectrogram.T) * 255)
 
 
-def eval_model(global_epoch, writer, device, model, checkpoint_dir, ismultispeaker):
+def eval_model(global_step, writer, device, model, checkpoint_dir, ismultispeaker):
     # harded coded
     texts = [
-        "AND DEBTORS MIGHT PRACTICALLY HAVE AS MUCH AS THEY LIKED%IF THEY COULD ONLY PAY FOR IT%.",
-        "THERE'S A WAY TO MEASURE THE ACUTE EMOTIONAL INTELLIGENCE THAT HAS NEVER GONE OUT OF STYLE%.",
-        "PRESIDENT TRUMP MET WITH OTHER LEADERS AT THE GROUP OF 20 CONFERENCE%.",
-        "GENERATIVE ADVERSARIAL NETWORK OR VARIATIONAL AUTO ENCODER%.",
-        "PLEASE CALL STELLA%.",
-        "SOME HAVE ACCEPTED THIS AS A MIRACLE WITHOUT ANY PHYSICAL EXPLANATION%.",
+        "And debtors might practically have as much as they liked%if they could only pay for it.",
+        "There's a way to measure the acute emotional intelligence that has never gone out of style.",
+        "President trump met with other leaders at the group of 20 conference.",
+        "Generative adversarial network or variational auto encoder.",
+        "Please call stella.",
+        "Some have accepted this as a miracle without any physical explanation.",
     ]
     import synthesis
     synthesis._frontend = _frontend
@@ -455,41 +383,42 @@ def eval_model(global_epoch, writer, device, model, checkpoint_dir, ismultispeak
     for speaker_id in speaker_ids:
         speaker_str = "multispeaker{}".format(speaker_id) if speaker_id is not None else "single"
 
-        for idx, text in enumerate(texts):
-            signal, alignments, _, mel = synthesis.tts(
-                model_eval, text, p=0, speaker_id=speaker_id, fast=True)
-            signal /= np.max(np.abs(signal))
+        for idx, text in enumerate(texts, 1):
+            model_eval.eval()
+            model_eval.make_generation_fast_()
+
+            sequence = np.array(_frontend.text_to_sequence(text, p=0.5))
+            #import pdb; pdb.set_trace()
+            sequence = torch.from_numpy(sequence).unsqueeze(0).long().to(device)
+            text_positions = torch.arange(1, sequence.size(-1) + 1).unsqueeze(0).long().to(device)
+            speaker_ids = None if speaker_id is None else torch.LongTensor([speaker_id]).to(device)
+
+            # Greedy decoding
+            with torch.no_grad():
+                mel, alignments, done = model_eval(
+                    sequence, text_positions=text_positions, speaker_ids=speaker_ids)
+            alignments = alignments[0].cpu().data.numpy()
+            mel = mel[0].cpu().data.numpy()
+            mel = audio._denormalize(mel)
 
             # Alignment
-            for i, alignment in enumerate(alignments):
-                alignment_dir = join(eval_output_dir, "alignment_layer{}".format(i + 1))
+            for i, alignment in enumerate(alignments, 1):
+                alignment_dir = join(eval_output_dir, "alignment_layer{}".format(i))
                 os.makedirs(alignment_dir, exist_ok=True)
-                path = join(alignment_dir, "epoch{:09d}_text{}_{}_layer{}_alignment.png".format(
-                    global_epoch, idx, speaker_str, i+1))
+                path = join(alignment_dir, "step{:09d}_text{}_{}_layer{}_alignment.png".format(
+                    global_step, idx, speaker_str, i))
                 save_alignment(path, alignment)
-                tag = "eval_layer_{}_alignment_{}_{}".format(i+1,idx, speaker_str)
-                writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1)) * 255).T, global_epoch)
+                tag = "eval_text_{}_alignment_layer{}_{}".format(idx, i, speaker_str)
+                writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1)) * 255).T, global_step)
 
             # Mel
             writer.add_image("(Eval) Predicted mel spectrogram text{}_{}".format(idx, speaker_str),
-                             prepare_spec_image(mel).transpose(2,0,1), global_epoch)
-
-            # Audio
-            path = join(eval_output_dir, "epoch{:09d}_text{}_{}_predicted.wav".format(
-                global_epoch, idx, speaker_str))
-            audio.save_wav(signal, path)
-
-            try:
-                writer.add_audio("(Eval) Predicted audio signal {}_{}".format(idx, speaker_str),
-                                 signal, global_epoch, sample_rate=hparams.sample_rate)
-            except Exception as e:
-                warn(str(e))
-                pass
+                             prepare_spec_image(mel).transpose(2,0,1), global_step)
 
 
-def save_states(global_epoch, writer, mel_outputs, linear_outputs, attn, mel, y,
+def save_states(global_step, writer, mel_outputs, attn, mel,
                 input_lengths, checkpoint_dir=None):
-    print("Save intermediate states at epoch {}".format(global_epoch))
+    print("Save intermediate states at step {}".format(global_step))
 
     # idx = np.random.randint(0, len(input_lengths))
     idx = min(1, len(input_lengths) - 1)
@@ -501,130 +430,29 @@ def save_states(global_epoch, writer, mel_outputs, linear_outputs, attn, mel, y,
         for i, alignment in enumerate(attn):
             alignment = alignment[idx].cpu().data.numpy()
             tag = "alignment_layer{}".format(i + 1)
-            writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1)) * 255).T, global_epoch) #転置消去
+            writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1)) * 255).T, global_step) #転置消去
 
             # save files as well for now
             alignment_dir = join(checkpoint_dir, "alignment_layer{}".format(i + 1))
             os.makedirs(alignment_dir, exist_ok=True)
-            path = join(alignment_dir, "epoch{:09d}_layer_{}_alignment.png".format(
-                global_epoch, i + 1))
+            path = join(alignment_dir, "step{:09d}_layer_{}_alignment.png".format(
+                global_step, i + 1))
             save_alignment(path, alignment)
-
-        # Save averaged alignment
-        '''
-        alignment_dir = join(checkpoint_dir, "alignment_ave")
-        os.makedirs(alignment_dir, exist_ok=True)
-        path = join(alignment_dir, "epoch{:09d}_alignment.png".format(global_epoch))
-        alignment = attn.mean(0)[idx].cpu().data.numpy()
-        save_alignment(path, alignment)
-
-        tag = "averaged_alignment"
-        writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1)) * 255).T, global_epoch)
-        '''
 
     # Predicted mel spectrogram
     if mel_outputs is not None:
         mel_output = mel_outputs[idx].cpu().data.numpy()
         mel_output = prepare_spec_image(audio._denormalize(mel_output))
-        writer.add_image("Predicted mel spectrogram", mel_output.transpose(2,0,1), global_epoch)
-
-    # Predicted spectrogram
-    if linear_outputs is not None:
-        linear_output = linear_outputs[idx].cpu().data.numpy()
-        spectrogram = prepare_spec_image(audio._denormalize(linear_output))
-        writer.add_image("Predicted linear spectrogram", spectrogram.transpose(2,0,1), global_epoch)
-
-        # Predicted audio signal
-        signal = audio.inv_spectrogram(linear_output.T)
-        signal /= np.max(np.abs(signal))
-        path = join(checkpoint_dir, "epoch{:09d}_predicted.wav".format(
-            global_epoch))
-        try:
-            writer.add_audio("Predicted audio signal", signal, global_epoch, sample_rate=hparams.sample_rate)
-        except Exception as e:
-            warn(str(e))
-            pass
-        audio.save_wav(signal, path)
+        writer.add_image("Predicted mel spectrogram", mel_output.transpose(2,0,1), global_step)
 
     # Target mel spectrogram
     if mel_outputs is not None:
         mel_output = mel[idx].cpu().data.numpy()
         mel_output = prepare_spec_image(audio._denormalize(mel_output))
-        writer.add_image("Target mel spectrogram", mel_output.transpose(2,0,1), global_epoch)
-
-    # Target spectrogram
-    if linear_outputs is not None:
-        linear_output = y[idx].cpu().data.numpy()
-        spectrogram = prepare_spec_image(audio._denormalize(linear_output))
-        writer.add_image("Target linear spectrogram", spectrogram.transpose(2,0,1), global_epoch)
-
+        writer.add_image("Target mel spectrogram", mel_output.transpose(2,0,1), global_step)
 
 def logit(x, eps=1e-8):
     return torch.log(x + eps) - torch.log(1 - x + eps)
-
-
-def masked_mean(y, mask):
-    # (B, T, D)
-    mask_ = mask.expand_as(y)
-    return (y * mask_).sum() / mask_.sum()
-
-
-def spec_loss(y_hat, y, mask, priority_bin=None, priority_w=0):
-    masked_l1 = MaskedL1Loss()
-    l1 = nn.L1Loss()
-
-    w = hparams.masked_loss_weight
-
-    # L1 loss
-    if w > 0:
-        assert mask is not None
-        l1_loss = w * masked_l1(y_hat, y, mask=mask) + (1 - w) * l1(y_hat, y)
-    else:
-        assert mask is None
-        l1_loss = l1(y_hat, y)
-
-    # Priority L1 loss
-    if priority_bin is not None and priority_w > 0:
-        if w > 0:
-            priority_loss = w * masked_l1(
-                y_hat[:, :, :priority_bin], y[:, :, :priority_bin], mask=mask) \
-                + (1 - w) * l1(y_hat[:, :, :priority_bin], y[:, :, :priority_bin])
-        else:
-            priority_loss = l1(y_hat[:, :, :priority_bin], y[:, :, :priority_bin])
-        l1_loss = (1 - priority_w) * l1_loss + priority_w * priority_loss
-
-    # Binary divergence loss
-    if hparams.binary_divergence_weight <= 0:
-        binary_div = y.data.new(1).zero_()
-    else:
-        y_hat_logits = logit(y_hat)
-        z = -y * y_hat_logits + torch.log1p(torch.exp(y_hat_logits))
-        if w > 0:
-            binary_div = w * masked_mean(z, mask) + (1 - w) * z.mean()
-        else:
-            binary_div = z.mean()
-
-    return l1_loss, binary_div
-
-
-@jit(nopython=True)
-def guided_attention(N, max_N, T, max_T, g):
-    W = np.zeros((max_N, max_T), dtype=np.float32)
-    for n in range(N):
-        for t in range(T):
-            W[n, t] = 1 - np.exp(-(n / N - t / T)**2 / (2 * g * g))
-    return W
-
-
-def guided_attentions(input_lengths, target_lengths, max_target_len, g=0.2):
-    B = len(input_lengths)
-    max_input_len = input_lengths.max()
-    W = np.zeros((B, max_target_len, max_input_len), dtype=np.float32)
-    for b in range(B):
-        W[b] = guided_attention(input_lengths[b], max_input_len,
-                                target_lengths[b], max_target_len, g).T
-    return W
-
 
 def train(device, model, data_loader, optimizer, writer,
           init_lr=0.002,
@@ -632,25 +460,23 @@ def train(device, model, data_loader, optimizer, writer,
           max_clip=100,
           clip_thresh=1.0,
           train_seq2seq=True, train_postnet=True):
-    linear_dim = model.linear_dim
     r = hparams.outputs_per_step
-    downsample_step = hparams.downsample_step
     current_lr = init_lr
 
     binary_criterion = nn.BCELoss()
+    l1 = nn.L1Loss()
 
     assert train_seq2seq or train_postnet
-
     global global_step, global_epoch
     while global_epoch < nepochs:
         running_loss = 0.
         print("{}epoch:".format(global_epoch))
-        #start = time.time()
-        for step, (x, input_lengths, mel, y, positions, done, target_lengths,
-                   speaker_ids, f0, sp, ap, voiced, world_lengths) \
+        for step, (x, input_lengths, mel, positions, done, target_lengths,
+                   speaker_ids) \
                 in tqdm(enumerate(data_loader)):
             model.train()
             ismultispeaker = speaker_ids is not None
+            eval_model(global_step, writer, device, model, checkpoint_dir, ismultispeaker)
             # Learning rate schedule
             if hparams.lr_schedule is not None:
                 lr_schedule_f = getattr(lrschedule, hparams.lr_schedule)
@@ -663,13 +489,9 @@ def train(device, model, data_loader, optimizer, writer,
             # Used for Position encoding
             text_positions, frame_positions = positions
 
-            # Downsample mel spectrogram
-            if downsample_step > 1:
-                mel = mel[:, 0::downsample_step, :].contiguous()
-
             # Lengths
             input_lengths = input_lengths.long().numpy()
-            decoder_lengths = target_lengths.long().numpy() // r // downsample_step
+            decoder_lengths = target_lengths.long().numpy() // r
 
             max_seq_len = max(input_lengths.max(), decoder_lengths.max())
             if max_seq_len >= hparams.max_positions:
@@ -695,25 +517,6 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
             target_lengths = target_lengths.to(device)
             speaker_ids = speaker_ids.to(device) if ismultispeaker else None
 
-
-            # Create mask if we use masked loss
-            if hparams.masked_loss_weight > 0:
-                # decoder output domain mask
-                decoder_target_mask = sequence_mask(
-                    target_lengths / (r * downsample_step),
-                    max_len=mel.size(1)).unsqueeze(-1)
-                if downsample_step > 1:
-                    # spectrogram-domain mask
-                    target_mask = sequence_mask(
-                        target_lengths, max_len=y.size(1)).unsqueeze(-1)
-                else:
-                    target_mask = decoder_target_mask
-                # shift mask
-                decoder_target_mask = decoder_target_mask[:, r:, :]
-                target_mask = target_mask[:, r:, :]
-            else:
-                decoder_target_mask, target_mask = None, None
-
             # Apply model
             if train_seq2seq and train_postnet:
                 mel_outputs, linear_outputs, attn, done_hat, vo_hat, f0_outputs, sp_outputs, ap_outputs= model(
@@ -721,14 +524,13 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
                     text_positions=text_positions, frame_positions=frame_positions,
                     input_lengths=input_lengths)
             elif train_seq2seq:
-                assert speaker_ids is None
-                mel_outputs, attn, done_hat, _ = model.seq2seq(
-                    x, mel,
+                mel_outputs, attn, done_hat = model(
+                    x, mel, speaker_ids=speaker_ids,
                     text_positions=text_positions, frame_positions=frame_positions,
                     input_lengths=input_lengths)
                 # reshape
                 mel_outputs = mel_outputs.view(len(mel), -1, mel.size(-1))
-                linear_outputs = None
+                linear_outputs, f0_outputs, sp_outputs, ap_outputs, vo_hat = None, None, None, None, None
             elif train_postnet:
                 assert speaker_ids is None
                 linear_outputs = model.postnet(mel)
@@ -736,34 +538,21 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
 
 
             # Losses
-            w = hparams.binary_divergence_weight
-
             # mel:
             if train_seq2seq:
                 #import pdb; pdb.set_trace()
-                mel_l1_loss, mel_binary_div = spec_loss(
-                    mel_outputs[:, :-r, :], mel[:, r:, :], decoder_target_mask)
-                mel_loss = (1 - w) * mel_l1_loss + w * mel_binary_div
-
-            # done:
-            if train_seq2seq:
+                mel_loss = l1(mel_outputs[:, :-r, :], mel[:, r:, :])
+                # done:
                 done_loss = binary_criterion(done_hat, done)
 
-            # linear: ここから直す
+            # Converter
             if train_postnet:
-                n_priority_freq = int(hparams.priority_freq / (hparams.sample_rate * 0.5) * linear_dim)
-                linear_l1_loss, linear_binary_div = spec_loss(
-                    linear_outputs[:, :-r, :], y[:, r:, :], target_mask,
-                    priority_bin=n_priority_freq,
-                    priority_w=hparams.priority_freq_weight)
-                linear_loss = (1 - w) * linear_l1_loss + w * linear_binary_div
+                linear_loss = l1(linear_outputs[:, :-r, :], y[:, r:, :])
                 rw = int(r * hparams.world_upsample)
-                l1 = nn.L1Loss()
-                cross = nn.BCELoss()
                 f0_loss = l1(f0_outputs[:,:-rw],f0[:,rw:])
                 sp_loss = l1(sp_outputs[:,:-rw,:],sp[:,rw:,:])
                 ap_loss = l1(ap_outputs[:,:-rw,:],ap[:,rw:,:])
-                voiced_loss = cross(vo_hat[:,:-rw],voiced[:,rw:])
+                voiced_loss = binary_criterion(vo_hat[:,:-rw],voiced[:,rw:])
 
             # Combine losses
             if train_seq2seq and train_postnet:
@@ -773,15 +562,10 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
             elif train_postnet:
                 loss = linear_loss + f0_loss + sp_loss + ap_loss + voiced_loss
 
-            # attention
-            if train_seq2seq and hparams.use_guided_attention:
-                soft_mask = guided_attentions(input_lengths, decoder_lengths,
-                                              attn.size(-2),
-                                              g=hparams.guided_attention_sigma)
-                soft_mask = torch.from_numpy(soft_mask).to(device)
-                attn_loss = (attn * soft_mask).mean()
-                loss += attn_loss
-
+            if global_epoch == 0 and global_step == 0:
+                save_states(
+                    global_step, writer, mel_outputs, attn,
+                    mel, input_lengths, checkpoint_dir)
 
 
             # Update
@@ -798,42 +582,33 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
             if train_seq2seq:
                 writer.add_scalar("done_loss", float(done_loss.item()), global_step)
                 #writer.add_scalar("mel loss", float(mel_loss.item()), global_step)
-                writer.add_scalar("mel_l1_loss", float(mel_l1_loss.item()), global_step)
+                writer.add_scalar("mel_l1_loss", float(mel_loss.item()), global_step)
                 #writer.add_scalar("mel_binary_div_loss", float(mel_binary_div.item()), global_step)
             if train_postnet:
                 #writer.add_scalar("linear_loss", float(linear_loss.item()), global_step)
-                writer.add_scalar("linear_l1_loss", float(linear_l1_loss.item()), global_step)
+                writer.add_scalar("linear_l1_loss", float(linear_loss.item()), global_step)
                 #writer.add_scalar("linear_binary_div_loss", float(linear_binary_div.item()), global_step)
                 writer.add_scalar("f0_l1_loss",float(f0_loss.item()), global_step)
                 writer.add_scalar("sp_l1_loss",float(sp_loss.item()), global_step)
                 writer.add_scalar("ap_l1_loss",float(ap_loss.item()), global_step)
                 writer.add_scalar("voiced_loss",float(voiced_loss.item()), global_step)
-            if train_seq2seq and hparams.use_guided_attention:
-                writer.add_scalar("attn_loss", float(attn_loss.item()), global_step)
             if clip_thresh > 0:
                 writer.add_scalar("gradient norm", grad_norm, global_step)
-                #writer.add_scalar("gradient value",grad_value,global_step)
             writer.add_scalar("learning rate", current_lr, global_step)
 
             global_step += 1
             running_loss += loss.item()
 
-            #end = time.time()
-            #print('for-time:{0}'.format(end-start)+'[sec], collect_time:{0}'.format(global_collect)+'[sec]')
-            #start = time.time()
-            #global_collect = 0
+            if global_step > 0 and global_step % checkpoint_interval == 0:
+                save_states(
+                    global_step, writer, mel_outputs, attn,
+                    mel, input_lengths, checkpoint_dir)
+                save_checkpoint(
+                    model, optimizer, global_step, checkpoint_dir, global_epoch,
+                    train_seq2seq, train_postnet)
 
-
-        if global_epoch >= 0 and global_epoch % checkpoint_interval == 0:
-            save_states(
-                global_epoch, writer, mel_outputs, linear_outputs, attn,
-                mel, y, input_lengths, checkpoint_dir)
-            save_checkpoint(
-                model, optimizer, global_step, checkpoint_dir, global_epoch,
-                train_seq2seq, train_postnet)
-
-        if global_epoch >= 0 and global_epoch % hparams.eval_interval == 0:
-            eval_model(global_epoch, writer, device, model, checkpoint_dir, ismultispeaker)
+            if global_step > 1e5 and global_step % hparams.eval_interval == 0 :
+                eval_model(global_step, writer, device, model, checkpoint_dir, ismultispeaker)
 
         averaged_loss = running_loss / (len(data_loader))
         writer.add_scalar("loss (per epoch)", averaged_loss, global_epoch)
@@ -849,13 +624,13 @@ def save_checkpoint(model, optimizer, step, checkpoint_dir, epoch,
         m = model
     elif train_seq2seq:
         suffix = "_seq2seq"
-        m = model.seq2seq
+        m = model
     elif train_postnet:
         suffix = "_postnet"
         m = model.postnet
 
     checkpoint_path = join(
-        checkpoint_dir, "checkpoint_epoch{:09d}{}.pth".format(global_epoch, suffix))
+        checkpoint_dir, "checkpoint_step{:09d}{}.pth".format(global_step, suffix))
     optimizer_state = optimizer.state_dict() if hparams.save_optimizer_state else None
     torch.save({
         "state_dict": m.state_dict(),
@@ -875,13 +650,19 @@ def build_model():
         mel_dim=hparams.num_mels,
         linear_dim=hparams.fft_size // 2 + 1,
         r=hparams.outputs_per_step,
-        downsample_step=hparams.downsample_step,
         padding_idx=hparams.padding_idx,
         dropout=hparams.dropout,
         kernel_size=hparams.kernel_size,
         encoder_channels=hparams.encoder_channels,
+        num_encoder_layer=hparams.num_encoder_layer,
         decoder_channels=hparams.decoder_channels,
+        num_decoder_layer=hparams.num_decoder_layer,
+        attention_hidden=hparams.attention_hidden,
         converter_channels=hparams.converter_channels,
+        num_converter_layer=hparams.num_converter_layer,
+        query_position_rate=hparams.query_position_rate,
+        key_position_rate=hparams.key_position_rate,
+        position_weight=hparams.position_weight,
         use_memory_mask=hparams.use_memory_mask,
         trainable_positional_encodings=hparams.trainable_positional_encodings,
         force_monotonic_attention=hparams.force_monotonic_attention,
@@ -891,8 +672,9 @@ def build_model():
         freeze_embedding=hparams.freeze_embedding,
         window_ahead=hparams.window_ahead,
         window_backward=hparams.window_backward,
-        key_projection=hparams.key_projection,
-        value_projection=hparams.value_projection,
+        world_upsample=hparams.world_upsample,
+        sp_fft_size=hparams.sp_fft_size,
+        only_seq2seq=True
     )
     return model
 
@@ -1012,11 +794,6 @@ if __name__ == "__main__":
     # Input dataset definitions
     X = FileSourceDataset(TextDataSource(data_root, speaker_id))
     Mel = FileSourceDataset(MelSpecDataSource(data_root, speaker_id))
-    Y = FileSourceDataset(LinearSpecDataSource(data_root, speaker_id))
-    F0 = FileSourceDataset(F0DataSource(data_root, speaker_id))
-    SP = FileSourceDataset(SpDataSource(data_root, speaker_id))
-    AP = FileSourceDataset(ApDataSource(data_root,speaker_id))
-
 
     # Prepare sampler
     frame_lengths = Mel.file_data_source.frame_lengths
@@ -1024,7 +801,7 @@ if __name__ == "__main__":
         frame_lengths, batch_size=hparams.batch_size)
 
     # Dataset and Dataloader setup
-    dataset = PyTorchDataset(X, Mel, Y, F0, SP, AP)
+    dataset = PyTorchDataset(X, Mel)
     data_loader = data_utils.DataLoader(
         dataset, batch_size=hparams.batch_size,
         num_workers=hparams.num_workers, sampler=sampler,

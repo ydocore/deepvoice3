@@ -24,13 +24,15 @@ def build_from_path(in_dir, out_dir, num_workers=1, tqdm=lambda x: x):
 
     for index, (speaker_id, text, wav_path) in enumerate(
             zip(speaker_ids, transcriptions, wav_paths)):
+        if index < 43778 :
+            continue
         futures.append(executor.submit(
             partial(_process_utterance, out_dir, index + 1, speaker_id, wav_path, text)))
     return [future.result() for future in tqdm(futures)]
 
 
 def start_at(labels):
-    has_silence = labels[0][-1] == "pau"
+    has_silence = labels[0][-1] == "pau" or "silB"
     if not has_silence:
         return labels[0][0]
     for i in range(1, len(labels)):
@@ -40,7 +42,7 @@ def start_at(labels):
 
 
 def end_at(labels):
-    has_silence = labels[-1][-1] == "pau"
+    has_silence = labels[-1][-1] == "pau" or "silE"
     if not has_silence:
         return labels[-1][1]
     for i in range(len(labels) - 2, 0, -1):

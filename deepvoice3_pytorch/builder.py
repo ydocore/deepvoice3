@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from deepvoice3_pytorch import MultiSpeakerTTSModel, AttentionSeq2Seq
+from deepvoice3_pytorch import MultiSpeakerTTSModel, AttentionSeq2Seq, MultispeakerSeq2seq
 
 
 def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
@@ -30,7 +30,8 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
                key_projection=False,
                value_projection=False,
                world_upsample = 1,
-               sp_fft_size=1025
+               sp_fft_size=1025,
+               only_seq2seq=False
                ):
     """Build deepvoice3
     """
@@ -67,6 +68,19 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
     )
 
     seq2seq = AttentionSeq2Seq(encoder, decoder)
+
+    if only_seq2seq:
+        scale_speaker_embed = num_encoder_layer + 2 + num_decoder_layer * 2 + 2
+        model = MultispeakerSeq2seq(
+            seq2seq, padding_idx=padding_idx,
+            mel_dim=mel_dim,
+            n_speakers=n_speakers, speaker_embed_dim=speaker_embed_dim,
+            trainable_positional_encodings=trainable_positional_encodings,
+            use_decoder_state_for_postnet_input=use_decoder_state_for_postnet_input,
+            speaker_embedding_weight_std=speaker_embedding_weight_std,
+            freeze_embedding=freeze_embedding, scale_speaker_embed=scale_speaker_embed
+        )
+        return model
 
     # Post net
     if use_decoder_state_for_postnet_input:

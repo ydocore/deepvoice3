@@ -685,7 +685,7 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
             if clip_thresh > 0:
                 grad_norm = torch.nn.utils.clip_grad_norm_(
                     model.get_trainable_parameters(), max_clip)
-                grad_value = torch.nn.utils.clip_grad_value_(
+                torch.nn.utils.clip_grad_value_(
                     model.get_trainable_parameters(),clip_thresh)
             optimizer.step()
 

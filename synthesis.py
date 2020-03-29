@@ -143,7 +143,7 @@ if __name__ == "__main__":
             text = line.decode("utf-8")[:-1]
             words = nltk.word_tokenize(text)
             start = time.time()
-            waveform, alignments, _, _, world = tts(
+            waveform, alignments, _, mel, world = tts(
                 model, text, p=replace_pronunciation_prob, speaker_id=speaker_id, fast=True)
             end = time.time() - start
             dst_wav_path = join(dst_dir, "{}_{}{}.wav".format(
