@@ -10,8 +10,6 @@ options:
     --checkpoint=<path>          Restore model from checkpoint path if given.
     --checkpoint-seq2seq=<path>  Restore seq2seq model from checkpoint path.
     --checkpoint-postnet=<path>  Restore postnet model from checkpoint path.
-    --train-seq2seq-only         Train only seq2seq model.
-    --train-postnet-only         Train only postnet model.
     --restore-parts=<path>       Restore part of the model.
     --log-event-path=<name>      Log event path.
     --reset-optimizer            Reset optimizer.
@@ -57,8 +55,9 @@ from torch.utils.tensorboard import SummaryWriter
 from matplotlib import cm
 from warnings import warn
 from hparams import hparams, hparams_debug_string
+import training_module as tm
 from training_module import TextDataSource, MelSpecDataSource, LinearSpecDataSource, \
-    PartialyRandomizedSimilarTimeLengthSampler, eval_model, save_states
+    PartialyRandomizedSimilarTimeLengthSampler
 
 
 global_step = 0
@@ -68,36 +67,6 @@ if use_cuda:
     cudnn.benchmark = False
 
 _frontend = None  # to be set later
-
-
-def _pad(seq, max_len, constant_values=0):
-    return np.pad(seq, (0, max_len - len(seq)),
-                  mode='constant', constant_values=constant_values)
-
-
-def _pad_2d(x, max_len, b_pad=0):
-    x = np.pad(x, [(b_pad, max_len - len(x) - b_pad), (0, 0)],
-               mode="constant", constant_values=0)
-    return x
-
-
-def plot_alignment(alignment, path, info=None):
-    fig, ax = plt.subplots()
-    im = ax.imshow(
-        alignment,
-        aspect='auto',
-        origin='lower',
-        interpolation='none')
-    fig.colorbar(im, ax=ax)
-    xlabel = 'Decoder timestep'
-    if info is not None:
-        xlabel += '\n\n' + info
-    plt.xlabel(xlabel)
-    plt.ylabel('Encoder timestep')
-    plt.tight_layout()
-    plt.savefig(path, format='png')
-    plt.close()
-
 
 class PyTorchDataset(object):
     def __init__(self, X, Mel, Y):
@@ -144,22 +113,22 @@ def collate_fn(batch):
     b_pad = r
     max_target_len += b_pad
 
-    a = np.array([_pad(x[0], max_input_len) for x in batch], dtype=np.int)
+    a = np.array([tm._pad(x[0], max_input_len) for x in batch], dtype=np.int)
     x_batch = torch.LongTensor(a)
 
     input_lengths = torch.LongTensor(input_lengths)
     target_lengths = torch.LongTensor(target_lengths)
 
-    b = np.array([_pad_2d(x[1], max_target_len, b_pad=b_pad) for x in batch],
+    b = np.array([tm._pad_2d(x[1], max_target_len, b_pad=b_pad) for x in batch],
                  dtype=np.float32)
     mel_batch = torch.FloatTensor(b)
 
-    c = np.array([_pad_2d(x[2], max_target_len, b_pad=b_pad) for x in batch],
+    c = np.array([tm._pad_2d(x[2], max_target_len, b_pad=b_pad) for x in batch],
                  dtype=np.float32)
     y_batch = torch.FloatTensor(c)
 
     # text positions
-    text_positions = np.array([_pad(np.arange(1, len(x[0]) + 1), max_input_len)
+    text_positions = np.array([tm._pad(np.arange(1, len(x[0]) + 1), max_input_len)
                                for x in batch], dtype=np.int)
     text_positions = torch.LongTensor(text_positions)
 
@@ -173,7 +142,7 @@ def collate_fn(batch):
         len(batch), max_decoder_target_len)
 
     # done flags
-    done = np.array([_pad(np.zeros(len(x[1]) // r - 1),
+    done = np.array([tm._pad(np.zeros(len(x[1]) // r - 1),
                           max_decoder_target_len, constant_values=1)
                      for x in batch])
     done = torch.FloatTensor(done).unsqueeze(-1)
@@ -186,34 +155,13 @@ def collate_fn(batch):
     return x_batch, input_lengths, mel_batch, y_batch, \
         (text_positions, frame_positions), done, target_lengths, speaker_ids
 
-
-def time_string():
-    return datetime.now().strftime('%Y-%m-%d %H:%M')
-
-
-def save_alignment(path, attn):
-    plot_alignment(attn.T, path, info="{}, {}, step={}".format(
-        hparams.builder, time_string(), global_step))
-
-
-def prepare_spec_image(spectrogram):
-    # [0, 1]
-    spectrogram = (spectrogram - np.min(spectrogram)) / (np.max(spectrogram) - np.min(spectrogram))
-    spectrogram = np.flip(spectrogram, axis=1)  # flip against freq axis
-    return np.uint8(cm.magma(spectrogram.T) * 255)
-
-
-
-def logit(x, eps=1e-8):
-    return torch.log(x + eps) - torch.log(1 - x + eps)
-
 def train(device, model, data_loader, optimizer, writer,
           init_lr=0.002,
           checkpoint_dir=None, checkpoint_interval=None, nepochs=None,
           max_clip=100,
           clip_thresh=1.0,
           train_seq2seq=True, train_postnet=True):
-    linear_dim = model.linear_dim
+    #linear_dim = model.linear_dim
     r = hparams.outputs_per_step
     current_lr = init_lr
 
@@ -237,6 +185,7 @@ def train(device, model, data_loader, optimizer, writer,
                     init_lr, global_step, **hparams.lr_schedule_kwargs)
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = current_lr
+
             optimizer.zero_grad()
 
             # Used for Position encoding
@@ -255,63 +204,37 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
                         max_seq_len, hparams.max_positions))
 
             # Transform data to CUDA device
-            if train_seq2seq:
-                x = x.to(device)
-                text_positions = text_positions.to(device)
-                frame_positions = frame_positions.to(device)
-            if train_postnet:
-                y = y.to(device)
+            x = x.to(device)
+            text_positions = text_positions.to(device)
+            frame_positions = frame_positions.to(device)
+            y = y.to(device)
             mel, done = mel.to(device), done.to(device)
             target_lengths = target_lengths.to(device)
             speaker_ids = speaker_ids.to(device) if ismultispeaker else None
 
             # Apply model
-            if train_seq2seq and train_postnet:
-                mel_outputs, linear_outputs, attn, done_hat= model(
-                    x, mel, speaker_ids=speaker_ids,
-                    text_positions=text_positions, frame_positions=frame_positions,
-                    input_lengths=input_lengths)
-            elif train_seq2seq:
-                assert speaker_ids is None
-                mel_outputs, attn, done_hat, _ = model.seq2seq(
-                    x, mel,
-                    text_positions=text_positions, frame_positions=frame_positions,
-                    input_lengths=input_lengths)
-                # reshape
-                mel_outputs = mel_outputs.view(len(mel), -1, mel.size(-1))
-                linear_outputs,  = None
-            elif train_postnet:
-                assert speaker_ids is None
-                linear_outputs = model.postnet(mel)
-                mel_outputs, attn, done_hat = None, None, None
-
+            mel_outputs, linear_outputs, attn, done_hat = model(
+                x, mel, speaker_ids=speaker_ids,
+                text_positions=text_positions, frame_positions=frame_positions,
+                input_lengths=input_lengths)
+            # reshape
+            mel_outputs = mel_outputs.view(len(mel), -1, mel.size(-1))
 
             # Losses
             # mel:
-            if train_seq2seq:
-                #import pdb; pdb.set_trace()
-                mel_loss = l1(mel_outputs[:, :-r, :], mel[:, r:, :])
-
-            # done:
-            if train_seq2seq:
-                done_loss = binary_criterion(done_hat, done)
-
-            # Converter
-            if train_postnet:
-                linear_loss = l1(linear_outputs[:, :-r, :], y[:, r:, :])
+            mel_loss = l1(mel_outputs[:, :-r, :], mel[:, r:, :])
+            done_loss = binary_criterion(done_hat, done)
+            linear_loss = l1(linear_outputs[:, :-r, :], y[:, r:, :])
 
             # Combine losses
-            if train_seq2seq and train_postnet:
-                loss = mel_loss + linear_loss + done_loss
-            elif train_seq2seq:
-                loss = mel_loss + done_loss
-            elif train_postnet:
-                loss = linear_loss
+            loss = mel_loss + linear_loss + done_loss
 
             if global_epoch == 0 and global_step == 0:
-                save_states(
+                tm.save_states(
                     global_step, writer, mel_outputs, linear_outputs, attn,
                     mel, y, input_lengths, checkpoint_dir)
+                tm.save_checkpoint(
+                    model, optimizer, global_step, checkpoint_dir, global_epoch)
 
 
             # Update
@@ -325,11 +248,9 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
 
             # Logs
             writer.add_scalar("loss", float(loss.item()), global_step)
-            if train_seq2seq:
-                writer.add_scalar("done_loss", float(done_loss.item()), global_step)
-                writer.add_scalar("mel_l1_loss", float(mel_loss.item()), global_step)
-            if train_postnet:
-                writer.add_scalar("linear_l1_loss", float(linear_loss.item()), global_step)
+            writer.add_scalar("done_loss", float(done_loss.item()), global_step)
+            writer.add_scalar("mel_l1_loss", float(mel_loss.item()), global_step)
+            writer.add_scalar("linear_l1_loss", float(linear_loss.item()), global_step)
             if clip_thresh > 0:
                 writer.add_scalar("gradient norm", grad_norm, global_step)
             writer.add_scalar("learning rate", current_lr, global_step)
@@ -338,139 +259,20 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
             running_loss += loss.item()
 
             if global_step > 0 and global_step % checkpoint_interval == 0:
-                save_states(
+                tm.save_states(
                     global_step, writer, mel_outputs, linear_outputs, attn,
                     mel, y, input_lengths, checkpoint_dir)
-                save_checkpoint(
-                    model, optimizer, global_step, checkpoint_dir, global_epoch,
-                    train_seq2seq, train_postnet)
+                tm.save_checkpoint(
+                    model, optimizer, global_step, checkpoint_dir, global_epoch)
 
             if global_step > 1e5 and global_step % hparams.eval_interval == 0 :
-                eval_model(global_step, writer, device, model, checkpoint_dir, ismultispeaker)
+                tm.eval_model(global_step, writer, device, model, checkpoint_dir, ismultispeaker)
 
         averaged_loss = running_loss / (len(data_loader))
         writer.add_scalar("loss (per epoch)", averaged_loss, global_epoch)
         print("Loss: {}".format(running_loss / (len(data_loader))))
 
         global_epoch += 1
-
-
-def save_checkpoint(model, optimizer, step, checkpoint_dir, epoch,
-                    train_seq2seq, train_postnet):
-    if train_seq2seq and train_postnet:
-        suffix = ""
-        m = model
-    elif train_seq2seq:
-        suffix = "_seq2seq"
-        m = model.seq2seq
-    elif train_postnet:
-        suffix = "_postnet"
-        m = model.postnet
-
-    checkpoint_path = join(
-        checkpoint_dir, "checkpoint_step{:09d}{}.pth".format(global_step, suffix))
-    optimizer_state = optimizer.state_dict() if hparams.save_optimizer_state else None
-    torch.save({
-        "state_dict": m.state_dict(),
-        "optimizer": optimizer_state,
-        "global_step": step,
-        "global_epoch": epoch,
-    }, checkpoint_path)
-    print("Saved checkpoint:", checkpoint_path)
-
-
-def build_model():
-    model = getattr(builder, hparams.builder)(
-        n_speakers=hparams.n_speakers,
-        speaker_embed_dim=hparams.speaker_embed_dim,
-        n_vocab=_frontend.n_vocab,
-        embed_dim=hparams.text_embed_dim,
-        mel_dim=hparams.num_mels,
-        linear_dim=hparams.fft_size // 2 + 1,
-        r=hparams.outputs_per_step,
-        padding_idx=hparams.padding_idx,
-        dropout=hparams.dropout,
-        kernel_size=hparams.kernel_size,
-        encoder_channels=hparams.encoder_channels,
-        num_encoder_layer=hparams.num_encoder_layer,
-        decoder_channels=hparams.decoder_channels,
-        num_decoder_layer=hparams.num_decoder_layer,
-        attention_hidden=hparams.attention_hidden,
-        converter_channels=hparams.converter_channels,
-        num_converter_layer=hparams.num_converter_layer,
-        query_position_rate=hparams.query_position_rate,
-        key_position_rate=hparams.key_position_rate,
-        position_weight=hparams.position_weight,
-        use_memory_mask=hparams.use_memory_mask,
-        trainable_positional_encodings=hparams.trainable_positional_encodings,
-        force_monotonic_attention=hparams.force_monotonic_attention,
-        use_decoder_state_for_postnet_input=hparams.use_decoder_state_for_postnet_input,
-        max_positions=hparams.max_positions,
-        speaker_embedding_weight_std=hparams.speaker_embedding_weight_std,
-        freeze_embedding=hparams.freeze_embedding,
-        window_ahead=hparams.window_ahead,
-        window_backward=hparams.window_backward,
-        world_upsample=hparams.world_upsample,
-        sp_fft_size=hparams.sp_fft_size,
-    )
-    return model
-
-
-def _load(checkpoint_path):
-    if use_cuda:
-        checkpoint = torch.load(checkpoint_path)
-    else:
-        checkpoint = torch.load(checkpoint_path,
-                                map_location=lambda storage, loc: storage)
-    return checkpoint
-
-
-def load_checkpoint(path, model, optimizer, reset_optimizer):
-    global global_step
-    global global_epoch
-
-    print("Load checkpoint from: {}".format(path))
-    checkpoint = _load(path)
-    model.load_state_dict(checkpoint["state_dict"])
-    if not reset_optimizer:
-        optimizer_state = checkpoint["optimizer"]
-        if optimizer_state is not None:
-            print("Load optimizer state from {}".format(path))
-            optimizer.load_state_dict(checkpoint["optimizer"])
-    global_step = checkpoint["global_step"]
-    global_epoch = checkpoint["global_epoch"]
-
-    return model
-
-
-def _load_embedding(path, model):
-    state = _load(path)["state_dict"]
-    key = "seq2seq.encoder.embed_tokens.weight"
-    model.seq2seq.encoder.embed_tokens.weight.data = state[key]
-
-# https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/3
-
-
-def restore_parts(path, model):
-    print("Restore part of the model from: {}".format(path))
-    state = _load(path)["state_dict"]
-    model_dict = model.state_dict()
-    valid_state_dict = {k: v for k, v in state.items() if k in model_dict}
-
-    try:
-        model_dict.update(valid_state_dict)
-        model.load_state_dict(model_dict)
-    except RuntimeError as e:
-        # there should be invalid size of weight(s), so load them per parameter
-        print(str(e))
-        model_dict = model.state_dict()
-        for k, v in valid_state_dict.items():
-            model_dict[k] = v
-            try:
-                model.load_state_dict(model_dict)
-            except RuntimeError as e:
-                print(str(e))
-                warn("{}: may contain invalid size of weight. skipping...".format(k))
 
 
 if __name__ == "__main__":
@@ -493,20 +295,6 @@ if __name__ == "__main__":
 
     log_event_path = args["--log-event-path"]
     reset_optimizer = args["--reset-optimizer"]
-
-    # Which model to be trained
-    train_seq2seq = args["--train-seq2seq-only"]
-    train_postnet = args["--train-postnet-only"]
-    # train both if not specified
-    if not train_seq2seq and not train_postnet:
-        print("Training whole model")
-        train_seq2seq, train_postnet = True, True
-    if train_seq2seq:
-        print("Training seq2seq model")
-    elif train_postnet:
-        print("Training postnet model")
-    else:
-        assert False, "must be specified wrong args"
 
     # Load preset if specified
     if preset is not None:
@@ -550,7 +338,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if use_cuda else "cpu")
 
     # Model
-    model = build_model().to(device)
+    model = tm.build_model(training_type='linear').to(device)
 
     optimizer = optim.Adam(model.get_trainable_parameters(),
                            lr=hparams.initial_learning_rate, betas=(
@@ -559,22 +347,22 @@ if __name__ == "__main__":
         amsgrad=hparams.amsgrad)
 
     if checkpoint_restore_parts is not None:
-        restore_parts(checkpoint_restore_parts, model)
+        tm.restore_parts(checkpoint_restore_parts, model)
 
     # Load checkpoints
     if checkpoint_postnet_path is not None:
-        load_checkpoint(checkpoint_postnet_path, model.postnet, optimizer, reset_optimizer)
+        tm.load_checkpoint(checkpoint_postnet_path, model.postnet, optimizer, reset_optimizer)
 
     if checkpoint_seq2seq_path is not None:
-        load_checkpoint(checkpoint_seq2seq_path, model.seq2seq, optimizer, reset_optimizer)
+        tm.load_checkpoint(checkpoint_seq2seq_path, model.seq2seq, optimizer, reset_optimizer)
 
     if checkpoint_path is not None:
-        load_checkpoint(checkpoint_path, model, optimizer, reset_optimizer)
+        tm.load_checkpoint(checkpoint_path, model, optimizer, reset_optimizer)
 
     # Load embedding
     if load_embedding is not None:
         print("Loading embedding from {}".format(load_embedding))
-        _load_embedding(load_embedding, model)
+        tm._load_embedding(load_embedding, model)
 
     # Setup summary writer for tensorboard
     if log_event_path is None:
@@ -594,12 +382,10 @@ if __name__ == "__main__":
               checkpoint_interval=hparams.checkpoint_interval,
               nepochs=hparams.nepochs,
               max_clip=hparams.max_clip,
-              clip_thresh=hparams.clip_thresh,
-              train_seq2seq=train_seq2seq, train_postnet=train_postnet)
+              clip_thresh=hparams.clip_thresh)
     except KeyboardInterrupt:
-        save_checkpoint(
-            model, optimizer, global_step, checkpoint_dir, global_epoch,
-            train_seq2seq, train_postnet)
+        tm.save_checkpoint(
+            model, optimizer, global_step, checkpoint_dir, global_epoch)
 
     print("Finished")
     sys.exit(0)

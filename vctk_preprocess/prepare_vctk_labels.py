@@ -25,12 +25,13 @@ def do(cmd):
 
 
 if __name__ == "__main__":
-    args = docopt(__doc__)
-    data_root = args["<data_root>"]
-    out_dir = args["<out_dir>"]
+    #args = docopt(__doc__)
+    data_root = '/mnt/f/vctk/VCTK-Corpus/'#args["<data_root>"]
+    out_dir = '/mnt/f/test/'#args["<out_dir>"]
+    abs_path = '/mnt/f/deepvoice3/vctk_preprocess/'
 
     for idx in tqdm(range(len(vctk.available_speakers))):
-        speaker = 376#vctk.available_speakers[idx]
+        speaker = vctk.available_speakers[idx]
 
         wav_root = join(data_root, "wav48/p{}/".format(speaker))
         txt_root = join(data_root, "txt/p{}/".format(speaker))
@@ -39,18 +40,18 @@ if __name__ == "__main__":
         print(wav_root, txt_root)
 
         # Do alignments
-        cmd = "python ./extract_feats.py -w {} -t {}".format(wav_root, txt_root)
+        cmd = "python {}extract_feats.py -w {} -t {}".format(abs_path, wav_root, txt_root)
         do(cmd)
 
         # Copy
         lab_dir = join(out_dir, "p{}".format(speaker))
         if not exists(lab_dir):
             os.makedirs(lab_dir)
-        cmd = "cp ./latest_features/merlin/misc/scripts/alignment/phone_align/full-context-labels/mono/*.lab {}".format(
-            lab_dir)
+        cmd = "cp {}latest_features/merlin/misc/scripts/alignment/phone_align/full-context-labels/mono/*.lab {}".format(
+            abs_path, lab_dir)
         do(cmd)
 
         # Remove
-        do("rm -rf ./latest_features")
+        do("rm -rf {}latest_features".format(abs_path))
 
     sys.exit(0)

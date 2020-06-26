@@ -31,8 +31,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
                value_projection=False,
                world_upsample = 1,
                sp_fft_size=1025,
-               only_seq2seq=False,
-               isLinear=True
+               training_type='seq2seq'
                ):
     """Build deepvoice3
     """
@@ -70,7 +69,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
 
     seq2seq = AttentionSeq2Seq(encoder, decoder)
 
-    if only_seq2seq:
+    if training_type == 'seq2seq':
         scale_speaker_embed = num_encoder_layer + 2 + num_decoder_layer * 2 + 2
         model = MultispeakerSeq2seq(
             seq2seq, padding_idx=padding_idx,
@@ -81,6 +80,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
             speaker_embedding_weight_std=speaker_embedding_weight_std,
             freeze_embedding=freeze_embedding, scale_speaker_embed=scale_speaker_embed
         )
+        model.training_type = training_type
         return model
 
     # Post net
@@ -92,13 +92,13 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
     k = kernel_size
 
     #Linear or world parameter
-    if isLinear:
+    if training_type == 'linear':
         converter = LinearConverter(
             n_speakers=n_speakers, speaker_embed_dim=speaker_embed_dim,
             in_dim=in_dim, out_dim=linear_dim, dropout=dropout, r=r,
             convolutions=[(h,k,1),]*num_converter_layer
         )
-    else:
+    elif training_type == 'world':
         converter = WorldConverter(
             n_speakers=n_speakers, speaker_embed_dim=speaker_embed_dim,
             in_dim=in_dim, out_dim=sp_fft_size, dropout=dropout, r=r, time_upsampling=world_upsample,
@@ -116,6 +116,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
         use_decoder_state_for_postnet_input=use_decoder_state_for_postnet_input,
         speaker_embedding_weight_std=speaker_embedding_weight_std,
         freeze_embedding=freeze_embedding, scale_speaker_embed=scale_speaker_embed)
+    model.training_type = training_type
 
     return model
 

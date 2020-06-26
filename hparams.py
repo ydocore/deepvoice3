@@ -47,7 +47,7 @@ hparams = hparam_tf.hparam.HParams(
     #WORLDのフレームサイズはSpectrogramのフレームサイズの定数倍で求めることが出来ないので，
     #WORLDのフレームサイズ/Spectrogramのフレームサイズ が最大の値でupsampleする
     # can be computed by `compute_timestamp_ratio.py`.
-    world_upsample=2.6,
+    world_upsample=2.5,
     sp_fft_size=1025, #can compute pyworld.get_cheaptrick_fft_size(fs) //2 + 1
     # whether to rescale waveform or not.
     # Let x is an input waveform, rescaled waveform y is given by:
@@ -75,7 +75,6 @@ hparams = hparam_tf.hparam.HParams(
     decoder_channels=256,
     num_decoder_layer=6,
     attention_hidden=256,
-    # Note: large converter channels requires significant computational cost
     converter_channels=256,
     num_converter_layer=6,
     query_position_rate=1.0,
@@ -115,7 +114,7 @@ hparams = hparam_tf.hparam.HParams(
     # Eval:
     # this can be list for multple layers of attention
     # e.g., [True, False, False, False, True]
-    force_monotonic_attention=[False,False,False,False,False,False],
+    force_monotonic_attention=[True,False,True,True,False,True],
     # Attention constraint for incremental decoding
     window_ahead=3,
     # 0 tends to prevent word repretetion, but sometime causes skip words

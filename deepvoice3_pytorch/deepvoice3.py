@@ -522,8 +522,8 @@ class WorldConverter(nn.Module):
     def __init__(self, n_speakers, speaker_embed_dim,
                  in_dim, out_dim, convolutions=((256, 5, 1),) * 4,
                  time_upsampling=1, r=5, dropout=0.1):
-        super(LinearConverter, self).__init__()
-        self.conv_block = Converter(n_speakers, speaker_embed_dim, in_dim, out_dim, convolutions, r, dropout)
+        super(WorldConverter, self).__init__()
+        self.conv_block = Converter(n_speakers, speaker_embed_dim, in_dim, convolutions, r, dropout)
         in_channels = convolutions[0][0]
 
         # world parameter

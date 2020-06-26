@@ -117,9 +117,9 @@ if __name__ == "__main__":
     assert hparams.name == "deepvoice3"
 
     _frontend = getattr(frontend, hparams.frontend)
-    import train
-    train._frontend = _frontend
-    from train import plot_alignment, build_model
+    import training_module as tm
+    tm._frontend = _frontend
+    from training_module import plot_alignment, build_model
 
     # Model
     model = build_model()
@@ -145,7 +145,7 @@ if __name__ == "__main__":
             text = line.decode("utf-8")[:-1]
             words = nltk.word_tokenize(text)
             start = time.time()
-            waveform, alignments, _, mel, world = tts(
+            waveform, alignments, _, mel = tts(
                 model, text, p=replace_pronunciation_prob, speaker_id=speaker_id, fast=True)
             end = time.time() - start
             dst_wav_path = join(dst_dir, "{}_{}{}.wav".format(
@@ -159,7 +159,6 @@ if __name__ == "__main__":
                 plot_alignment(alignment.T, dst_alignment_path,
                                info="{}, {}, layer_{}".format(hparams.builder, basename(checkpoint_path),i))
             audio.save_wav(waveform, dst_wav_path)
-            audio.save_wav(world, dst_world_path)
             name = splitext(basename(text_list_file_path))[0]
             if output_html:
                 print("""

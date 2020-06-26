@@ -81,14 +81,9 @@ class MultiSpeakerTTSModel(nn.Module):
             text_sequences, mel_targets, speaker_embed,
             text_positions, frame_positions, input_lengths)
 
-        # Reshape
-        # (B, T, mel_dim)
-        #import pdb; pdb.set_trace()
-        #mel_outputs = mel_outputs.view(B, -1, self.mel_dim)
-
         # Prepare postnet inputs
         if self.use_decoder_state_for_postnet_input:
-            postnet_inputs = decoder_states#.detach() #WORLDが悪さしてるかもなので，Converterに勾配情報を伝播させない
+            postnet_inputs = decoder_states
         else:
             postnet_inputs = mel_outputs
 
