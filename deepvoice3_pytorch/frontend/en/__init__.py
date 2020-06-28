@@ -48,3 +48,14 @@ def text_to_sequence(text, p=0.0):
 
 
 from deepvoice3_pytorch.frontend.text import sequence_to_text
+
+#test
+if __name__ == '__main__':
+    print('input ratio:')
+    p = float(input())
+    print('input English sentence:')
+    text = input()
+    seq = text_to_sequence(text, p)
+    print('sequence:{}'.format(seq))
+    seq2text = sequence_to_text(seq)
+    print('sequence to text:{}'.format(seq2text))
