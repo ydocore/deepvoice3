@@ -1,3 +1,23 @@
+"""Test Dataloader time.
+
+usage: training_module.py [options]
+
+options:
+    --data-root=<dir>            Directory contains preprocessed features.
+    --checkpoint-dir=<dir>       Directory where to save model checkpoints [default: checkpoints].
+    --hparams=<parmas>           Hyper parameters [default: ].
+    --preset=<json>              Path of preset parameters (json).
+    --checkpoint=<path>          Restore model from checkpoint path if given.
+    --checkpoint-seq2seq=<path>  Restore seq2seq model from checkpoint path.
+    --checkpoint-postnet=<path>  Restore postnet model from checkpoint path.
+    --restore-parts=<path>       Restore part of the model.
+    --log-event-path=<name>      Log event path.
+    --reset-optimizer            Reset optimizer.
+    --load-embedding=<path>      Load embedding from checkpoint.
+    --speaker-id=<N>             Use specific speaker of data in case for multi-speaker datasets.
+    -h, --help                   Show this help message and exit
+"""
+from docopt import docopt
 import sys
 import gc
 import platform
@@ -32,6 +52,7 @@ import os
 from matplotlib import cm
 from warnings import warn
 from hparams import hparams, hparams_debug_string
+import time
 
 use_cuda = torch.cuda.is_available()
 if use_cuda:
@@ -513,7 +534,9 @@ def build_model(training_type='seq2seq'):
     )
     return model
 
+
 '''
+#以下，データ読み込みのテスト用
 class PyTorchDataset(object):
     def __init__(self, X, Mel, Y, F0, SP, AP):
         self.X = X
@@ -622,5 +645,86 @@ def collate_fn(batch):
 
     return x_batch, input_lengths, mel_batch, y_batch, \
         (text_positions, frame_positions), done, target_lengths, speaker_ids, \
-        f0_batch, sp_batch, ap_batch, voiced_batch, world_lengths
+           (f0_batch, sp_batch, ap_batch, voiced_batch), world_lengths
+
+if __name__== '__main__':
+    args = docopt(__doc__)
+    print("Command line args:\n", args)
+    checkpoint_dir = args["--checkpoint-dir"]
+    checkpoint_path = args["--checkpoint"]
+    checkpoint_seq2seq_path = args["--checkpoint-seq2seq"]
+    checkpoint_postnet_path = args["--checkpoint-postnet"]
+    load_embedding = args["--load-embedding"]
+    checkpoint_restore_parts = args["--restore-parts"]
+    speaker_id = args["--speaker-id"]
+    speaker_id = int(speaker_id) if speaker_id is not None else None
+    preset = args["--preset"]
+
+    data_root = args["--data-root"]
+    if data_root is None:
+        data_root = join(dirname(__file__), "data", "ljspeech")
+
+    log_event_path = args["--log-event-path"]
+    reset_optimizer = args["--reset-optimizer"]
+
+    # Load preset if specified
+    if preset is not None:
+        with open(preset) as f:
+            hparams.parse_json(f.read())
+
+    # Override hyper parameters
+    hparams.parse(args["--hparams"])
+
+    # Preventing Windows specific error such as MemoryError
+    # Also reduces the occurrence of THAllocator.c 0x05 error in Widows build of PyTorch
+    if platform.system() == "Windows":
+        print(" [!] Windows Detected - IF THAllocator.c 0x05 error occurs SET num_workers to 1")
+
+    assert hparams.name == "deepvoice3"
+    print(hparams_debug_string())
+
+    _frontend = getattr(frontend, hparams.frontend)
+
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    # Input dataset definitions
+    X = FileSourceDataset(TextDataSource(data_root, speaker_id))
+    Mel = FileSourceDataset(MelSpecDataSource(data_root, speaker_id))
+    Y = FileSourceDataset(LinearSpecDataSource(data_root, speaker_id))
+    F0 = FileSourceDataset(F0DataSource(data_root, speaker_id))
+    SP = FileSourceDataset(SpDataSource(data_root, speaker_id))
+    AP = FileSourceDataset(ApDataSource(data_root, speaker_id))
+
+    # Prepare sampler
+    frame_lengths = Mel.file_data_source.frame_lengths
+    sampler = PartialyRandomizedSimilarTimeLengthSampler(
+        frame_lengths, batch_size=hparams.batch_size)
+
+    # Dataset and Dataloader setup
+    dataset = PyTorchDataset(X, Mel, Y, F0, SP, AP)
+    data_loader = data_utils.DataLoader(
+        dataset, batch_size=hparams.batch_size,
+        num_workers=hparams.num_workers, sampler=sampler,
+        collate_fn=collate_fn, pin_memory=hparams.pin_memory)
+
+    device = torch.device("cuda" if use_cuda else "cpu")
+
+    for x, input_lengths, mel, y, positions, done, target_lengths, speaker_ids, world, world_length in data_loader:
+        start = time.time()
+        ismultispeaker = speaker_ids is not None
+        # Transform data to CUDA device
+        text_positions, frame_positions = positions
+        x = x.to(device)
+        text_positions = text_positions.to(device)
+        frame_positions = frame_positions.to(device)
+        voiced, f0, sp, ap = world
+        y = y.to(device)
+        f0 = f0.to(device)
+        sp = sp.to(device)
+        ap = ap.to(device)
+        voiced = voiced.to(device)
+        mel, done = mel.to(device), done.to(device)
+        target_lengths = target_lengths.to(device)
+        speaker_ids = speaker_ids.to(device) if ismultispeaker else None
+
 '''

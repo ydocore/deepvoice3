@@ -145,7 +145,6 @@ def collate_fn(batch):
         speaker_ids = torch.LongTensor([x[2] for x in batch])
     else:
         speaker_ids = None
-
     return x_batch, input_lengths, mel_batch, \
         (text_positions, frame_positions), done, target_lengths, speaker_ids
 
@@ -231,8 +230,6 @@ def train(device, model, data_loader, optimizer, writer,
         for step, (x, input_lengths, mel, positions, done, target_lengths,
                    speaker_ids) \
                 in tqdm(enumerate(data_loader)):
-            import time
-            start = time.time()
             model.train()
             ismultispeaker = speaker_ids is not None
             # Learning rate schedule
@@ -298,7 +295,6 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
                 grad_value = torch.nn.utils.clip_grad_value_(
                     model.get_trainable_parameters(),clip_thresh)
             optimizer.step()
-            end = time.time() - start
 
             # Logs
             writer.add_scalar("loss", float(loss.item()), global_step)

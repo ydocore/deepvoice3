@@ -27,8 +27,6 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
                freeze_embedding=False,
                window_ahead=3,
                window_backward=1,
-               key_projection=False,
-               value_projection=False,
                world_upsample = 1,
                sp_fft_size=1025,
                training_type='seq2seq'
@@ -46,7 +44,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
         dropout=dropout, max_positions=max_positions,
         embedding_weight_std=embedding_weight_std,
         # (channels, kernel_size, dilation)
-        convolutions=[(h, k, 1),]*num_encoder_layer,#num_attention_layers=6#TODO:hard codeなのでいろいろ直す
+        convolutions=[(h, k, 1),]*num_encoder_layer,
     )
 
     h = decoder_channels
@@ -70,7 +68,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
     seq2seq = AttentionSeq2Seq(encoder, decoder)
 
     if training_type == 'seq2seq':
-        scale_speaker_embed = num_encoder_layer + 2 + num_decoder_layer * 2 + 2
+        scale_speaker_embed = num_encoder_layer + 2 + num_decoder_layer * 2 + 2 #TODO:なくても良いかもなので確認
         model = MultispeakerSeq2seq(
             seq2seq, padding_idx=padding_idx,
             mel_dim=mel_dim,

@@ -1,6 +1,6 @@
 """Trainining script for seq2seq text-to-speech synthesis model.
 
-usage: train.py [options]
+usage: train_world.py [options]
 
 options:
     --data-root=<dir>            Directory contains preprocessed features.

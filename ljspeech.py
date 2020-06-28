@@ -74,9 +74,9 @@ def _process_utterance(out_dir, index, wav_path, text):
     
     #world parameters
     f0,sp,ap = audio.world(wav,hparams.sample_rate)
-    f0 = (f0 / hparams.f0_norm).astype(np.float32)
+    f0 = (f0 / hparams.f0_norm).astype(np.float32) #normalize
     sp = audio._normalize(sp).astype(np.float32)
-    ap = ap.astype(np.float32)
+    ap = ap.astype(np.float32) #apは0~1の範囲しか値を取らないので正規化不要
     world_frames = f0.shape[0]
     
 

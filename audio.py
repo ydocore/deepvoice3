@@ -68,8 +68,6 @@ def world_synthesize(f0,sp,ap):
     sp = librosa.db_to_power(_denormalize(sp) + hparams.sp_ref_level_db).astype(np.double)
     ap = ap.astype(np.double)
     return pw.synthesize(f0,sp,ap,hparams.sample_rate)
-    #wav = wav * 32767 / max(0.01, np.max(np.abs(wav)))
-    #wavfile.write(path, hparams.sample_rate, wav.astype(np.int16))
 
 # Conversions:
 
