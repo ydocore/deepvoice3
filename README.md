@@ -8,3 +8,5 @@
 ・各種ハイパーパラメータを論文に遵守  
 
 1. [arXiv:1710.07654](https://arxiv.org/abs/1710.07654): Deep Voice 3: Scaling Text-to-Speech with Convolutional Sequence Learning.
+
+## データセットの準備
