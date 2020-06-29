@@ -12,6 +12,8 @@
 
 ## Requirements
 [torch13.yml](torch13.yml)参照
+
+また，コンソールで`python -c "import nltk; nltk.download('cmudict')"`を実行して音素辞書のダウンロードをする．
 ## Getting started
 ### 概要
 このリポジトリでは，weight_norm変更に伴い，text-to-melのみの学習を行う場合，VocoderにGriffin-Limを用いる場合，WORLDを用いる場合の3つに分けて実装した．
@@ -22,6 +24,7 @@
   - WORLD：[train_world](train_world.py)
 - 推論：[synthesis.py](synthesis.py)
 
+また，ハイパーパラメータは`hparams.py`で主に設定を行う．
 ### データの準備
 このリポジトリでは，英語話者のみ学習を行ったため，他言語に関する動作は保証しない
 - LJSpeech：https://keithito.com/LJ-Speech-Dataset/
@@ -38,6 +41,7 @@
 >- `jsut`(jp, single speaker)
 >- `nikl_m`(ko, multi-speaker)
 >- `nikl_s`(ko, single speaker)
+  
 変更点として，メルスペクトログラム，スペクトログラム，WORLD Vocoderのパラメータ全てを出力するようにしている．
 
 ### 学習
@@ -45,4 +49,16 @@
 ```
 python train_${training_type}.py --data-root=${data-root} --log-event-path=${log_dir} --checkpoint=${checkpoint_path}
 ```
-`--checkpoint`は学習済みのデータを途中から再開
+`--checkpoint`は学習済みのデータを再学習する場合のみ指定．
+
+### 推論
+学習済みデータを用いて，自己回帰で推論を行う．
+```
+python synthesis.py --type=${vocoder_type} ${checkpoint_path} ${test_list.txt} ${output_dir}
+```
+
+`--type`は学習したネットワークに応じて`linear`もしくは`world`と指定する．（デフォルトは`linear`）
+
+## Future work
+- Neutral Vocoderでも合成できるように`synthesis.py`を修正する
+- VCTKでVocoderがWORLDのとき，alignmentが上手く収束しないので，原因を探す
