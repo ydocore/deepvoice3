@@ -9,4 +9,9 @@
 
 1. [arXiv:1710.07654](https://arxiv.org/abs/1710.07654): Deep Voice 3: Scaling Text-to-Speech with Convolutional Sequence Learning.
 
-## データセットの準備
+## Requirements
+[torch13.yml](torch13.yml)参照
+## Getting Started
+このリポジトリでは
+- データの前処理：[preprocess.py](preprocess.py)
+
