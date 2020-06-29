@@ -185,6 +185,8 @@ def train(device, model, data_loader, optimizer, writer,
     binary_criterion = nn.BCELoss()
     l1 = nn.L1Loss()
 
+    test_flag = False
+
     global global_step, global_epoch
     while global_epoch < nepochs:
         running_loss = 0.
@@ -292,8 +294,9 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
                 tm.save_checkpoint(
                     model, optimizer, global_step, checkpoint_dir, global_epoch)
 
-            if global_step > 1e5 and global_step % hparams.eval_interval == 0 :
+            if not test_flag or global_step > 1e5 and global_step % hparams.eval_interval == 0 :
                 tm.eval_model(global_step, writer, device, model, checkpoint_dir, ismultispeaker)
+                test_flag = True
 
         averaged_loss = running_loss / (len(data_loader))
         writer.add_scalar("loss (per epoch)", averaged_loss, global_epoch)
@@ -377,15 +380,10 @@ if __name__ == "__main__":
     if checkpoint_restore_parts is not None:
         tm.restore_parts(checkpoint_restore_parts, model)
 
+    #global global_step, global_epoch
     # Load checkpoints
-    if checkpoint_postnet_path is not None:
-        tm.load_checkpoint(checkpoint_postnet_path, model.postnet, optimizer, reset_optimizer)
-
-    if checkpoint_seq2seq_path is not None:
-        tm.load_checkpoint(checkpoint_seq2seq_path, model.seq2seq, optimizer, reset_optimizer)
-
     if checkpoint_path is not None:
-        tm.load_checkpoint(checkpoint_path, model, optimizer, reset_optimizer)
+        model, global_step, global_epoch = tm.load_checkpoint(checkpoint_path, model, optimizer, reset_optimizer)
 
     # Load embedding
     if load_embedding is not None:

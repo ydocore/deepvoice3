@@ -38,7 +38,6 @@ import torch.backends.cudnn as cudnn
 from torch.utils import data as data_utils
 from torch.utils.data.sampler import Sampler
 import numpy as np
-from numba import jit
 
 from nnmnkwii.datasets import FileSourceDataset, FileDataSource
 from os.path import join, expanduser
@@ -396,14 +395,8 @@ if __name__ == "__main__":
         tm.restore_parts(checkpoint_restore_parts, model)
 
     # Load checkpoints
-    if checkpoint_postnet_path is not None:
-        tm.load_checkpoint(checkpoint_postnet_path, model.postnet, optimizer, reset_optimizer)
-
-    if checkpoint_seq2seq_path is not None:
-        tm.load_checkpoint(checkpoint_seq2seq_path, model.seq2seq, optimizer, reset_optimizer)
-
     if checkpoint_path is not None:
-        tm.load_checkpoint(checkpoint_path, model, optimizer, reset_optimizer)
+        model, global_step, global_epoch = tm.load_checkpoint(checkpoint_path, model, optimizer, reset_optimizer)
 
     # Load embedding
     if load_embedding is not None:

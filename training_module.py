@@ -37,7 +37,6 @@ import torch.backends.cudnn as cudnn
 from torch.utils import data as data_utils
 from torch.utils.data.sampler import Sampler
 import numpy as np
-from numba import jit
 
 from nnmnkwii.datasets import FileSourceDataset, FileDataSource
 from os.path import join, expanduser
@@ -287,7 +286,7 @@ def eval_model(global_step, writer, device, model, checkpoint_dir, ismultispeake
     os.makedirs(eval_output_dir, exist_ok=True)
 
     # Prepare model for evaluation
-    model_eval = build_model().to(device)
+    model_eval = build_model(training_type=model.training_type).to(device)
     model_eval.load_state_dict(model.state_dict())
 
     # hard coded
@@ -306,7 +305,7 @@ def eval_model(global_step, writer, device, model, checkpoint_dir, ismultispeake
                 os.makedirs(alignment_dir, exist_ok=True)
                 path = join(alignment_dir, "step{:09d}_text{}_{}_layer{}_alignment.png".format(
                     global_step, idx, speaker_str, i))
-                save_alignment(path, alignment)
+                save_alignment(path, alignment, global_step)
                 tag = "eval_text_{}_alignment_layer{}_{}".format(idx, i, speaker_str)
                 writer.add_image(tag, np.uint8(cm.viridis(np.flip(alignment, 1)) * 255).T, global_step)
 
@@ -451,9 +450,6 @@ def _load(checkpoint_path):
 
 
 def load_checkpoint(path, model, optimizer, reset_optimizer):
-    global global_step
-    global global_epoch
-
     print("Load checkpoint from: {}".format(path))
     checkpoint = _load(path)
     model.load_state_dict(checkpoint["state_dict"])
@@ -465,7 +461,7 @@ def load_checkpoint(path, model, optimizer, reset_optimizer):
     global_step = checkpoint["global_step"]
     global_epoch = checkpoint["global_epoch"]
 
-    return model
+    return model, global_step, global_epoch
 
 
 def _load_embedding(path, model):

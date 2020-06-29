@@ -11,8 +11,8 @@ from docopt import docopt
 import sys
 import numpy as np
 from hparams import hparams, hparams_debug_string
-import train
-from train import TextDataSource, MelSpecDataSource, F0DataSource
+import training_module as tm
+from training_module import TextDataSource, MelSpecDataSource, F0DataSource
 from nnmnkwii.datasets import FileSourceDataset
 from tqdm import trange
 from deepvoice3_pytorch import frontend
@@ -30,7 +30,7 @@ if __name__ == "__main__":
     hparams.parse(args["--hparams"])
     assert hparams.name == "deepvoice3"
 
-    train._frontend = getattr(frontend, hparams.frontend)
+    tm._frontend = getattr(frontend, hparams.frontend)
 
     # Code below
     X = FileSourceDataset(TextDataSource(data_root))

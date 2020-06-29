@@ -350,15 +350,8 @@ if __name__ == "__main__":
         tm.restore_parts(checkpoint_restore_parts, model)
 
     # Load checkpoints
-    if checkpoint_postnet_path is not None:
-        tm.load_checkpoint(checkpoint_postnet_path, model.postnet, optimizer, reset_optimizer)
-
-    if checkpoint_seq2seq_path is not None:
-        tm.load_checkpoint(checkpoint_seq2seq_path, model.seq2seq, optimizer, reset_optimizer)
-
     if checkpoint_path is not None:
-        tm.load_checkpoint(checkpoint_path, model, optimizer, reset_optimizer)
-
+        model, global_step, global_epoch = tm.load_checkpoint(checkpoint_path, model.postnet, optimizer, reset_optimizer)
     # Load embedding
     if load_embedding is not None:
         print("Loading embedding from {}".format(load_embedding))

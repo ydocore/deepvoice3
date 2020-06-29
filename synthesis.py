@@ -14,6 +14,7 @@ options:
     --replace_pronunciation_prob=<N>  Prob [default: 0.5].
     --speaker_id=<id>                 Speaker ID (for multi-speaker model).
     --output-html                     Output html for blog post.
+    --type=<s>                        vocoder tyoe [default: linear]
     -h, --help               Show help message.
 """
 from docopt import docopt
@@ -72,6 +73,7 @@ def tts(model, text, p=0, speaker_id=None, fast=False):
         sp = sps[0].cpu().data.numpy()
         ap = aps[0].cpu().data.numpy()
         waveform = audio.world_synthesize(f0, sp, ap)
+        spectrogram = (f0, sp, ap)
     else:
         linear_output = vocoder_parameter[0].cpu().data.numpy()
         spectrogram = audio._denormalize(linear_output)
@@ -104,6 +106,7 @@ if __name__ == "__main__":
     replace_pronunciation_prob = float(args["--replace_pronunciation_prob"])
     output_html = args["--output-html"]
     speaker_id = args["--speaker_id"]
+    training_type = args["--type"]
     if speaker_id is not None:
         speaker_id = int(speaker_id)
     preset = args["--preset"]
@@ -122,7 +125,7 @@ if __name__ == "__main__":
     from training_module import plot_alignment, build_model
 
     # Model
-    model = build_model()
+    model = build_model(training_type=training_type)
 
     # Load checkpoints separately
     if checkpoint_postnet_path is not None and checkpoint_seq2seq_path is not None:
