@@ -4,6 +4,7 @@ from torch import nn
 from deepvoice3_pytorch import MultiSpeakerTTSModel, AttentionSeq2Seq, MultispeakerSeq2seq
 
 
+# This is called by default
 def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
                n_speakers=1, speaker_embed_dim=16, padding_idx=0,
                dropout=(1 - 0.95), kernel_size=5,
@@ -38,6 +39,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
     # Seq2seq
     h = encoder_channels  # hidden dim (channels)
     k = kernel_size   # kernel size
+    # Encoder
     encoder = Encoder(
         n_vocab, embed_dim, padding_idx=padding_idx,
         n_speakers=n_speakers, speaker_embed_dim=speaker_embed_dim,
@@ -50,6 +52,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
     h = decoder_channels
     k = kernel_size
     att_hid = attention_hidden
+    # Decoder
     decoder = Decoder(
         embed_dim, attention_hidden=att_hid, in_dim=mel_dim, r=r, padding_idx=padding_idx,
         n_speakers=n_speakers, speaker_embed_dim=speaker_embed_dim,
@@ -65,6 +68,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
         window_backward=window_backward,
     )
 
+    # Attention
     seq2seq = AttentionSeq2Seq(encoder, decoder)
 
     if training_type == 'seq2seq':
@@ -81,7 +85,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
         model.training_type = training_type
         return model
 
-    # Post net
+    # Post net (?)
     if use_decoder_state_for_postnet_input:
         in_dim = h
     else:
@@ -89,7 +93,8 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
     h = converter_channels
     k = kernel_size
 
-    #Linear or world parameter
+    # Converter
+    # Linear or world parameter
     if training_type == 'linear':
         converter = LinearConverter(
             n_speakers=n_speakers, speaker_embed_dim=speaker_embed_dim,
