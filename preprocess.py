@@ -43,6 +43,7 @@ def write_metadata(metadata, out_dir):
 
 
 if __name__ == "__main__":
+    # Get parameters and options
     args = docopt(__doc__)
     name = args["<name>"]
     in_dir = args["<in_dir>"]
@@ -60,6 +61,8 @@ if __name__ == "__main__":
     assert hparams.name == "deepvoice3"
     print(hparams_debug_string())
 
+    # Import the module corresponding to the dataset
     assert name in ["jsut", "ljspeech", "vctk", "nikl_m", "nikl_s", "json_meta"]
     mod = importlib.import_module(name)
+    # Perform preprocessing
     preprocess(mod, in_dir, out_dir, num_workers)
