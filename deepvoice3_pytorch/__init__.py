@@ -94,6 +94,7 @@ class MultiSpeakerTTSModel(nn.Module):
 
         return mel_outputs, vocoder_parameter, alignments, done
 
+# default Seq2seq
 class MultispeakerSeq2seq(nn.Module):
     def __init__(self, seq2seq, mel_dim=80,
                  n_speakers=1, speaker_embed_dim=16, padding_idx=None,
@@ -164,6 +165,7 @@ class MultispeakerSeq2seq(nn.Module):
         return mel_outputs, alignments, done
 
 
+#Attention
 class AttentionSeq2Seq(nn.Module):
     """Encoder + Decoder with attention
     """
