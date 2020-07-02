@@ -165,11 +165,13 @@ def train(device, model, data_loader, optimizer, writer,
     r = hparams.outputs_per_step
     current_lr = init_lr
 
+    # binary cross entropy error function
     binary_criterion = nn.BCELoss()
     l1 = nn.L1Loss()
 
     assert train_seq2seq or train_postnet
 
+    #train
     global global_step, global_epoch
     while global_epoch < nepochs:
         running_loss = 0.
@@ -276,6 +278,10 @@ Please set a larger value for ``max_position`` in hyper parameters.""".format(
 
 
 if __name__ == "__main__":
+    
+    '''Data settings'''
+    
+    # Get parameters and options
     args = docopt(__doc__)
     print("Command line args:\n", args)
     checkpoint_dir = args["--checkpoint-dir"]
@@ -289,6 +295,7 @@ if __name__ == "__main__":
     preset = args["--preset"]
 
 
+    # Get preprocessed data path
     data_root = args["--data-root"]
     if data_root is None:
         data_root = join(dirname(__file__), "data", "ljspeech")
@@ -336,6 +343,8 @@ if __name__ == "__main__":
 
 
     device = torch.device("cuda" if use_cuda else "cpu")
+    
+    '''Learn the model'''
 
     # Model
     model = tm.build_model(training_type='linear').to(device)
