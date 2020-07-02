@@ -71,6 +71,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
     # Attention
     seq2seq = AttentionSeq2Seq(encoder, decoder)
 
+    # default
     if training_type == 'seq2seq':
         scale_speaker_embed = num_encoder_layer + 2 + num_decoder_layer * 2 + 2 #TODO:なくても良いかもなので確認
         model = MultispeakerSeq2seq(
