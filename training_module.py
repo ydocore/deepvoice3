@@ -494,6 +494,7 @@ def restore_parts(path, model):
                 warn("{}: may contain invalid size of weight. skipping...".format(k))
 
 def build_model(training_type='seq2seq'):
+    # Call the "hparams.builder" function in builder
     model = getattr(builder, hparams.builder)(
         n_speakers=hparams.n_speakers,
         speaker_embed_dim=hparams.speaker_embed_dim,
