@@ -67,6 +67,7 @@ class Encoder(nn.Module):
 
         input_embedding = x
 
+        # pre FC
         x = self.pre_linear(x)
 
         # B x T x C -> B x C x T
@@ -78,6 +79,8 @@ class Encoder(nn.Module):
 
         # Back to B x T x C
         x = x.transpose(1, 2)
+        
+        # post FC
         x = self.linear(x)
         keys = x
 
