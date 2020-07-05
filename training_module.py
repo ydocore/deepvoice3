@@ -493,7 +493,7 @@ def restore_parts(path, model):
                 print(str(e))
                 warn("{}: may contain invalid size of weight. skipping...".format(k))
 
-def build_model(training_type='seq2seq'): # linear or WORLD or WaveNet
+def build_model(training_type='seq2seq'): # linear or world or seq2seq
     # Call the "hparams.builder" function in builder
     model = getattr(builder, hparams.builder)(
         n_speakers=hparams.n_speakers,
@@ -505,7 +505,7 @@ def build_model(training_type='seq2seq'): # linear or WORLD or WaveNet
         r=hparams.outputs_per_step,
         padding_idx=hparams.padding_idx,
         dropout=hparams.dropout,
-        kernel_size=hparams.kernel_size,
+        kernel_size=hparams.kernel_size, 
         encoder_channels=hparams.encoder_channels,
         num_encoder_layer=hparams.num_encoder_layer,
         decoder_channels=hparams.decoder_channels,
