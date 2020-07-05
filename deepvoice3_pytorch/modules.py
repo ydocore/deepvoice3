@@ -67,12 +67,14 @@ class GradMultiply(torch.autograd.Function):
         return grad * ctx.scale, None
 
 
-def Linear(in_features, out_features, dim=None):
+def Linear(in_features,   # input dimension
+           out_features,  # output dimension
+           dim=None):
     """Weight-normalized Linear layer (input: N x T x C)"""
     m = nn.Linear(in_features, out_features)
     m.weight.data.normal_(mean=0, std=0.05) #conform weight normalization paper
-    m.bias.data.zero_()
-    return nn.utils.weight_norm(m,dim=dim)
+    m.bias.data.zero_() # bias initialization (?)
+    return nn.utils.weight_norm(m,dim=dim) # divide weight into size and direction
 
 def Linear_relu(in_features, out_features, dropout=0):
     """Weight-normalized Linear layer (input: N x T x C)"""
@@ -115,9 +117,17 @@ class Conv1dGLU(nn.Module):
     """(Dilated) Conv1d + Gated linear unit + (optionally) speaker embedding
     """
 
-    def __init__(self, n_speakers, speaker_embed_dim,
-                 in_channels, out_channels, kernel_size,
-                 dropout, padding=None, dilation=1, causal=False, residual=False,
+    def __init__(self,
+                 n_speakers, # single speaker or multiple speakers
+                 speaker_embed_dim,
+                 in_channels,
+                 out_channels,
+                 kernel_size,
+                 dropout, # dropout probability
+                 padding=None,
+                 dilation=1,
+                 causal=False,
+                 residual=False,
                  *args, **kwargs):
         super(Conv1dGLU, self).__init__()
         self.dropout = dropout
