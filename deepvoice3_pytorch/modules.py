@@ -82,10 +82,14 @@ def Linear_relu(in_features, out_features, dropout=0):
     return nn.utils.weight_norm(m)
 
 
-def Embedding(num_embeddings, embedding_dim, padding_idx, std=1.0):
+# compress one-hot vector dimensions
+def Embedding(num_embeddings, # size of the dictionary
+              embedding_dim,  # the size of each embedding vector
+              padding_idx,    # whether learning progresses in the padding part
+              std=1.0):
     m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
     #m.weight.data.normal_(0, std)
-    m.weight.data.uniform_(-std, std)
+    m.weight.data.uniform_(-std, std) # weight initialization (?)
     return m
 
 
