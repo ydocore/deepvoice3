@@ -62,3 +62,9 @@ python synthesis.py --type=${vocoder_type} ${checkpoint_path} ${test_list.txt} $
 ## Future work
 - Neutral Vocoderでも合成できるように`synthesis.py`を修正する
 - VCTKでVocoderがWORLDのとき，alignmentが上手く収束しないので，原因を探す
+
+## Experiment
+- パラメータの変更
+  - エンコーダの「畳み込みブロック」の数
+  - デコーダの「畳み込みブロック+アテンションブロック」の数
+  - デコーダの「プレネット」の数
