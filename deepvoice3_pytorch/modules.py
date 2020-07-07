@@ -95,7 +95,10 @@ def Embedding(num_embeddings, # size of the dictionary
     return m
 
 
-def Conv1d(in_channels, out_channels, kernel_size, dropout=0, std_mul=4.0, **kwargs):
+def Conv1d(in_channels,
+           out_channels,
+           kernel_size,
+           dropout=0, std_mul=4.0, **kwargs):
     from .conv import Conv1d
     m = Conv1d(in_channels, out_channels, kernel_size, **kwargs)
     #std = math.sqrt((std_mul*(1.0-dropout)) / (m.kernel_size[0] * in_channels))
