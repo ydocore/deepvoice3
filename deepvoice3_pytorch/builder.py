@@ -71,7 +71,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
     # Attention
     seq2seq = AttentionSeq2Seq(encoder, decoder)
 
-    # train model
+    # Seq2seq model
     if training_type == 'seq2seq':
         scale_speaker_embed = num_encoder_layer + 2 + num_decoder_layer * 2 + 2 #TODO:なくても良いかもなので確認
         model = MultispeakerSeq2seq(
@@ -95,13 +95,14 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
     k = kernel_size
 
     # Converter
-    # Linear or world parameter
+    # Linear converter
     if training_type == 'linear':
         converter = LinearConverter(
             n_speakers=n_speakers, speaker_embed_dim=speaker_embed_dim,
             in_dim=in_dim, out_dim=linear_dim, dropout=dropout, r=r,
             convolutions=[(h,k,1),]*num_converter_layer
         )
+    # World converter
     elif training_type == 'world':
         converter = WorldConverter(
             n_speakers=n_speakers, speaker_embed_dim=speaker_embed_dim,
@@ -112,7 +113,7 @@ def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
     scale_speaker_embed = num_encoder_layer + 2 + num_decoder_layer * 2 + 2 + num_converter_layer + 1
 
     # Seq2seq + post net
-    # inference model
+    # Linear or World model
     model = MultiSpeakerTTSModel(
         seq2seq, converter, padding_idx=padding_idx,
         mel_dim=mel_dim, linear_dim=linear_dim,
