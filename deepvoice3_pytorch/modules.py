@@ -158,8 +158,8 @@ class Conv1dGLU(nn.Module):
         return self._forward(x, speaker_embed, True)
 
     def _forward(self, x, speaker_embed, is_incremental):
-        residual = x
-        x = F.dropout(x, p=self.dropout, training=self.training)
+        residual = x # Used for residual connection
+        x = F.dropout(x, p=self.dropout, training=self.training) # dropout
         if is_incremental:
             splitdim = -1
             x = self.conv.incremental_forward(x)
