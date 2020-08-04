@@ -207,9 +207,15 @@ def eval_model(global_step, writer, device, model, checkpoint_dir, ismultispeake
 
 
 
-def train(device, model, data_loader, optimizer, writer,
+def train(device,
+          model,
+          data_loader,
+          optimizer,
+          writer,
           init_lr=0.002,
-          checkpoint_dir=None, checkpoint_interval=None, nepochs=None,
+          checkpoint_dir=None,
+          checkpoint_interval=None,
+          nepochs=None,
           max_clip=100,
           clip_thresh=1.0):
     r = hparams.outputs_per_step
