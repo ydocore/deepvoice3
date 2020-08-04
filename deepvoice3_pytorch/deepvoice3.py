@@ -21,6 +21,7 @@ def expand_speaker_embed(inputs_btc, speaker_embed=None, tdim=1):
     return speaker_embed_btc
 
 
+# keyとvalueを出力
 class Encoder(nn.Module):
     def __init__(self, n_vocab, embed_dim, n_speakers, speaker_embed_dim,
                  padding_idx=None, embedding_weight_std=0.1,
@@ -58,6 +59,7 @@ class Encoder(nn.Module):
                 speaker_embed=None):
         assert self.n_speakers == 1 or speaker_embed is not None
 
+        # 埋め込み層
         # embed text_sequences
         x = self.embed_tokens(text_sequences.long())
 
@@ -67,19 +69,22 @@ class Encoder(nn.Module):
 
         input_embedding = x
 
+        # 全結合層
         # pre FC
         x = self.pre_linear(x)
 
-        # B x T x C -> B x C x T
+        # B x T x C (Batch x Time x Channel) -> B x C x T (Batch x Channel x Time)
         x = x.transpose(1, 2)
 
+        # 畳み込みブロック
         # １D conv blocks
         for f in self.convolutions:
             x = f(x, speaker_embed) if isinstance(f, Conv1dGLU) else f(x)
 
-        # Back to B x T x C
+        # Back to B x T x C (Batch x Time x Channel)
         x = x.transpose(1, 2)
         
+        # 全結合層
         # post FC
         x = self.linear(x)
         keys = x
