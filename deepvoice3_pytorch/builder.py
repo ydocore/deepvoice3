@@ -5,9 +5,16 @@ from deepvoice3_pytorch import MultiSpeakerTTSModel, AttentionSeq2Seq, Multispea
 
 
 # This is called by default
-def deepvoice3(n_vocab, embed_dim=256, mel_dim=80, linear_dim=513, r=4,
-               n_speakers=1, speaker_embed_dim=16, padding_idx=0,
-               dropout=(1 - 0.95), kernel_size=5,
+def deepvoice3(n_vocab,
+               embed_dim=256,
+               mel_dim=80,
+               linear_dim=513,
+               r=4,
+               n_speakers=1,
+               speaker_embed_dim=16,
+               padding_idx=0,
+               dropout=(1 - 0.95),
+               kernel_size=5,
                encoder_channels=128,
                num_encoder_layer=7,
                decoder_channels=256,
