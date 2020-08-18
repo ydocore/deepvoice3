@@ -299,6 +299,7 @@ class Decoder(nn.Module):
         else:
             self.force_monotonic_attention = force_monotonic_attention
 
+    # 入力はなに？(正解のメルなの？)
     def forward(self, encoder_out, inputs=None,
                 text_positions=None, frame_positions=None,
                 speaker_embed=None, lengths=None):
@@ -309,13 +310,16 @@ class Decoder(nn.Module):
             outputs = self.incremental_forward(encoder_out, text_positions, speaker_embed)
             return outputs
 
+        # 多分フレーム数に合わせて入力を変形している？(入力サイズの確認が必要)
         # Grouping multiple frames if necessary
         if inputs.size(-1) == self.in_dim:
             inputs = inputs.view(inputs.size(0), inputs.size(1) // self.r, -1)
         assert inputs.size(-1) == self.in_dim * self.r
 
+        # keyとvalueの取得
         keys, values = encoder_out
 
+        # 多分今のところは関係なし
         if self.use_memory_mask and lengths is not None:
             mask = get_mask_from_lengths(keys, lengths)
         else:
@@ -326,24 +330,30 @@ class Decoder(nn.Module):
 
         x = inputs
 
+        # プレネット
         # Prenet
         for i, (f, sf) in enumerate(zip(self.preattention, self.speaker_fc)):
+            # 2層目以降はドロップアウト
             if i > 0:
                 x = F.dropout(x, p=self.dropout, training=self.training)
             if speaker_embed is not None:
                 x = x + F.softsign(sf(speaker_embed))[:,None,:]
             x = F.relu(f(x))
 
+        # xのサイズを変換
         # Generic case: B x T x C -> B x C x T
         x = x.transpose(1, 2)
 
+        # 畳み込み+アテンション
         # Casual convolutions + Multi-hop attentions
         alignments = []
         for i, (f, attention) in enumerate(zip(self.convolutions, self.attention)):
 
+            # 畳み込み(なんで場合わけをしてるのかわかんないけど多分そんな関係なさそう)
             x = f(x, speaker_embed) if isinstance(f, Conv1dGLU) else f(x)
             residual = x
 
+            # アテンション
             # Feed conv output to attention layer as query
             if attention is not None:
                 assert isinstance(f, Conv1dGLU)
@@ -355,27 +365,28 @@ class Decoder(nn.Module):
                 x = x.transpose(1, 2)
                 alignments += [alignment]
 
-
+            # 残差接続とスケーリング(if文の意味がわからない)
             if isinstance(f, Conv1dGLU):
                 x = (x + residual) * math.sqrt(0.5)
 
-        # decoder state (B x T x C):
+        # 畳み込み＋アテンションの出力をdecoder stateとして取得
+        # decoder state (B x T x C)
         # internal representation before compressed to output dimention
         decoder_states = x.transpose(1, 2).contiguous()
 
+        # サイズを変換
         # Back to B x T x C
         x = x.transpose(1, 2)
-        out = self.last_fc(x)
-        gate = self.gate_fc(x)
+        out = self.last_fc(x) # ポストネット
+        gate = self.gate_fc(x) # ポストネット(gate)
 
         # project to mel-spectorgram
-        outputs = torch.sigmoid(gate) * out
-        outputs = outputs.view(outputs.size(0),-1,self.in_dim)
+        outputs = torch.sigmoid(gate) * out # [疑問] なぜシグモイドを通したgateをかけている？
+        outputs = outputs.view(outputs.size(0),-1,self.in_dim) # サイズを変換
 
+        # doneを求める
         # Done flag
         done = torch.sigmoid(self.fc(x))
-
-
 
         return outputs, torch.stack(alignments), done, decoder_states
 
