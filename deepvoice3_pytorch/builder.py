@@ -43,6 +43,7 @@ def deepvoice3(n_vocab,
     """
     from deepvoice3_pytorch.deepvoice3 import Encoder, Decoder, LinearConverter, WorldConverter
 
+    # エンコーダの構築
     # Seq2seq
     h = encoder_channels  # hidden dim (channels)
     k = kernel_size   # kernel size
@@ -56,6 +57,7 @@ def deepvoice3(n_vocab,
         convolutions=[(h, k, 1),]*num_encoder_layer,
     )
 
+    # デコーダの構築
     h = decoder_channels
     k = kernel_size
     att_hid = attention_hidden
@@ -75,6 +77,7 @@ def deepvoice3(n_vocab,
         window_backward=window_backward,
     )
 
+    # アテンションの構築
     # Attention
     seq2seq = AttentionSeq2Seq(encoder, decoder)
 
@@ -93,6 +96,8 @@ def deepvoice3(n_vocab,
         model.training_type = training_type
         return model
 
+    '''以降関係なし(今のところ)'''
+    
     # Post net (?)
     if use_decoder_state_for_postnet_input:
         in_dim = h
