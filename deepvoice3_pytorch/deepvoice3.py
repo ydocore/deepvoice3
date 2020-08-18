@@ -21,21 +21,30 @@ def expand_speaker_embed(inputs_btc, speaker_embed=None, tdim=1):
     return speaker_embed_btc
 
 
-# keyとvalueを出力
+# エンコーダ
 class Encoder(nn.Module):
-    def __init__(self, n_vocab, embed_dim, n_speakers, speaker_embed_dim,
-                 padding_idx=None, embedding_weight_std=0.1,
+    def __init__(self, n_vocab,
+                 embed_dim,
+                 n_speakers,
+                 speaker_embed_dim,
+                 padding_idx=None,
+                 embedding_weight_std=0.1,
                  convolutions=((64, 5, .1),) * 7,
-                 max_positions=512, dropout=0.1, apply_grad_scaling=True, num_attention_layers=4):
+                 max_positions=512,
+                 dropout=0.1,
+                 apply_grad_scaling=True,
+                 num_attention_layers=4):
         super(Encoder, self).__init__()
-        self.dropout = dropout
-        self.num_attention_layers = num_attention_layers
-        self.apply_grad_scaling = apply_grad_scaling
+        self.dropout = dropout # ドロップアウト
+        self.num_attention_layers = num_attention_layers # アテンション層の数(多分いらない)
+        self.apply_grad_scaling = apply_grad_scaling # これなに？
 
+        # テキストの埋め込み層
         # Text input embeddings
         self.embed_tokens = Embedding(
             n_vocab, embed_dim, padding_idx, embedding_weight_std)
 
+        # 今は関係なし
         # Speaker embedding
         if n_speakers > 1:
             self.speaker_fc1 = Linear(speaker_embed_dim, embed_dim)
@@ -45,34 +54,37 @@ class Encoder(nn.Module):
         # Non causual convolution blocks
         in_channels = embed_dim
         self.convolutions = nn.ModuleList()
-        self.pre_linear = Linear(in_channels,convolutions[0][0])
+        self.pre_linear = Linear(in_channels,convolutions[0][0]) # プレネット
         in_channels = convolutions[0][0]
+        # 畳み込みブロック
         for idx, (out_channels, kernel_size, dilation) in enumerate(convolutions):
             self.convolutions.append(
                 Conv1dGLU(n_speakers, speaker_embed_dim,
                           in_channels, out_channels, kernel_size, causal=False,
                           dilation=dilation, dropout=dropout, residual=True))
             in_channels = out_channels
-        self.linear = Linear(in_channels,embed_dim)
+        self.linear = Linear(in_channels,embed_dim) # ポストネット
 
     def forward(self, text_sequences, text_positions=None, lengths=None,
                 speaker_embed=None):
         assert self.n_speakers == 1 or speaker_embed is not None
 
-        # 埋め込み層
+        # テキスト埋め込み
         # embed text_sequences
         x = self.embed_tokens(text_sequences.long())
 
+        # 関係なし
         # expand speaker embedding for all time steps
         if speaker_embed is not None:
             x = x + F.softsign(self.speaker_fc1(speaker_embed))[:,None,:]
 
         input_embedding = x
 
-        # 全結合層
+        # プレネット
         # pre FC
         x = self.pre_linear(x)
 
+        # データを変形
         # B x T x C (Batch x Time x Channel) -> B x C x T (Batch x Channel x Time)
         x = x.transpose(1, 2)
 
@@ -81,21 +93,25 @@ class Encoder(nn.Module):
         for f in self.convolutions:
             x = f(x, speaker_embed) if isinstance(f, Conv1dGLU) else f(x)
 
+        # データの変形を解除
         # Back to B x T x C (Batch x Time x Channel)
         x = x.transpose(1, 2)
         
-        # 全結合層
+        # ポストネット
         # post FC
         x = self.linear(x)
         keys = x
 
+        # 関係なし
         if speaker_embed is not None:
             keys = keys + F.softsign(self.speaker_fc2(speaker_embed))[:,None,:]
 
+        # よくわからん(勾配をスケーリングしている？)
         # scale gradients (this only affects backward, not forward)
         if self.apply_grad_scaling and self.num_attention_layers is not None:
             keys = GradMultiply.apply(keys, 1.0 / (self.num_attention_layers))
 
+        # valueを求める
         # add output to input embedding for attention
         values = (keys + input_embedding) * math.sqrt(0.5)
 
@@ -201,10 +217,17 @@ class AttentionLayer(nn.Module):
         return x, attn_scores
 
 
+# デコーダ
 class Decoder(nn.Module):
-    def __init__(self, embed_dim, attention_hidden, n_speakers, speaker_embed_dim,
-                 in_dim=80, r=5,
-                 max_positions=512, padding_idx=None,
+    def __init__(self,
+                 embed_dim,
+                 attention_hidden,
+                 n_speakers,
+                 speaker_embed_dim,
+                 in_dim=80,
+                 r=5,
+                 max_positions=512,
+                 padding_idx=None,
                  preattention=(80,128),
                  convolutions=((128, 5, 1),) * 4,
                  dropout=0.1,
@@ -217,15 +240,17 @@ class Decoder(nn.Module):
                  window_backward=1,
                  ):
         super(Decoder, self).__init__()
-        self.dropout = dropout
-        self.in_dim = in_dim
-        self.r = r
-        self.query_position_rate = query_position_rate
-        self.key_position_rate = torch.tensor(key_position_rate) if n_speakers > 1 else key_position_rate
-        self.position_weight = position_weight
+        self.dropout = dropout # ドロップアウト
+        self.in_dim = in_dim # 入力次元
+        self.r = r # 出力フレーム数
+        self.query_position_rate = query_position_rate # 位置率(クエリ)
+        self.key_position_rate = torch.tensor(key_position_rate) if n_speakers > 1 else key_position_rate # 位置率(キー)
+        self.position_weight = position_weight # わからん
 
+        # 入力チャンネル数
         in_channels = in_dim*r
 
+        # プレネット
         # Prenet: FC layer
         self.preattention = nn.ModuleList()
         self.speaker_fc = nn.ModuleList()
@@ -237,10 +262,10 @@ class Decoder(nn.Module):
             self.preattention.append(Linear(in_channels,out_channels))
             in_channels = out_channels
 
+        # 因果的畳み込み＋アテンション
         # Causal convolution blocks + attention layers
         self.convolutions = nn.ModuleList()
         self.attention = nn.ModuleList()
-
         for i, (out_channels, kernel_size, dilation) in enumerate(convolutions):
             assert in_channels == out_channels
             self.convolutions.append(
@@ -257,15 +282,18 @@ class Decoder(nn.Module):
                                position_weight=position_weight))
             in_channels = out_channels
 
+        # ポストネット(mel)
         self.last_fc = Linear(in_channels,in_dim*r)
         self.gate_fc = Linear(in_channels,in_dim*r)
 
+        # ポストネット(done)
         # Mel-spectrogram (before sigmoid) -> Done binary flag
         self.fc = Linear(in_channels, 1)
 
         self.max_decoder_steps = 200
         self.min_decoder_steps = 10
         self.use_memory_mask = use_memory_mask
+        # 単調強制を行うか
         if isinstance(force_monotonic_attention, bool):
             self.force_monotonic_attention = [force_monotonic_attention] * len(convolutions)
         else:
@@ -274,9 +302,10 @@ class Decoder(nn.Module):
     def forward(self, encoder_out, inputs=None,
                 text_positions=None, frame_positions=None,
                 speaker_embed=None, lengths=None):
+        # 初回の場合
         if inputs is None:
             assert text_positions is not None
-            self.start_fresh_sequence()
+            self.start_fresh_sequence() # プレネットと畳み込みをクリア？
             outputs = self.incremental_forward(encoder_out, text_positions, speaker_embed)
             return outputs
 
@@ -350,6 +379,7 @@ class Decoder(nn.Module):
 
         return outputs, torch.stack(alignments), done, decoder_states
 
+    # 初回の時に使用
     def incremental_forward(self, encoder_out, text_positions, speaker_embed=None,
                             initial_input=None, test_inputs=None):
         keys, values = encoder_out
