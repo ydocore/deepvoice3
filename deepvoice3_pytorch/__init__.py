@@ -94,23 +94,29 @@ class MultiSpeakerTTSModel(nn.Module):
 
         return mel_outputs, vocoder_parameter, alignments, done
 
+# text to mel のモデルクラス
 # default Seq2seq
 class MultispeakerSeq2seq(nn.Module):
-    def __init__(self, seq2seq, mel_dim=80,
-                 n_speakers=1, speaker_embed_dim=16, padding_idx=None,
+    def __init__(self,
+                 seq2seq,
+                 mel_dim=80,
+                 n_speakers=1,
+                 speaker_embed_dim=16,
+                 padding_idx=None,
                  trainable_positional_encodings=False,
                  use_decoder_state_for_postnet_input=False,
                  speaker_embedding_weight_std=0.01,
                  freeze_embedding=False,
                  scale_speaker_embed=1):
         super(MultispeakerSeq2seq, self).__init__()
-        self.seq2seq = seq2seq
-        self.mel_dim = mel_dim
-        self.trainable_positional_encodings = trainable_positional_encodings
-        self.use_decoder_state_for_postnet_input = use_decoder_state_for_postnet_input
-        self.freeze_embedding = freeze_embedding
-        self.scale_speaker_embed = scale_speaker_embed
+        self.seq2seq = seq2seq # エンコーダ＋デコーダ
+        self.mel_dim = mel_dim # メルの分割数
+        self.trainable_positional_encodings = trainable_positional_encodings # 位置率？
+        self.use_decoder_state_for_postnet_input = use_decoder_state_for_postnet_input # なにこれ？
+        self.freeze_embedding = freeze_embedding # なにこれ？
+        self.scale_speaker_embed = scale_speaker_embed # なくてもいいっぽい？
 
+        # 今は必要ないと思われる
         # Speaker embedding
         if n_speakers > 1:
             self.embed_speakers = Embedding(
@@ -119,8 +125,8 @@ class MultispeakerSeq2seq(nn.Module):
         self.n_speakers = n_speakers
         self.speaker_embed_dim = speaker_embed_dim
 
+    # 重みの削除？
     def make_generation_fast_(self):
-
         def remove_weight_norm(m):
             try:
                 nn.utils.remove_weight_norm(m)
@@ -128,6 +134,7 @@ class MultispeakerSeq2seq(nn.Module):
                 return
         self.apply(remove_weight_norm)
 
+    # パラメータの取得
     def get_trainable_parameters(self):
         freezed_param_ids = set()
 
@@ -145,10 +152,17 @@ class MultispeakerSeq2seq(nn.Module):
 
         return (p for p in self.parameters() if id(p) not in freezed_param_ids)
 
-    def forward(self, text_sequences, mel_targets=None, speaker_ids=None,
-                text_positions=None, frame_positions=None, input_lengths=None):
+    def forward(self,
+                text_sequences,
+                mel_targets=None,
+                speaker_ids=None,
+                text_positions=None,
+                frame_positions=None,
+                input_lengths=None):
+        # 入力テキスト
         B = text_sequences.size(0)
 
+        # 今は関係ない
         if speaker_ids is not None:
             assert self.n_speakers > 1
             speaker_embed = self.embed_speakers(speaker_ids)
@@ -157,6 +171,7 @@ class MultispeakerSeq2seq(nn.Module):
         else:
             speaker_embed = None
 
+        # エンコーダとデコーダを実行
         # Apply seq2seq
         # (B, T//r, mel_dim*r)
         mel_outputs, alignments, done, decoder_states = self.seq2seq(
