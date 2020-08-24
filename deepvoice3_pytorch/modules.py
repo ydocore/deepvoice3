@@ -154,6 +154,7 @@ class Conv1dGLU(nn.Module):
     def forward(self, x, speaker_embed=None):
         return self._forward(x, speaker_embed, False)
 
+    # 初回のデコーダで利用
     def incremental_forward(self, x, speaker_embed=None):
         return self._forward(x, speaker_embed, True)
 
