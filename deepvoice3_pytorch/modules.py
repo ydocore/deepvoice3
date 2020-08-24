@@ -178,6 +178,7 @@ class Conv1dGLU(nn.Module):
         x = a * torch.sigmoid(b)
         return (x + residual) * math.sqrt(0.5) if self.residual else x
 
+    # デコーダ初回時に利用
     def clear_buffer(self):
         self.conv.clear_buffer()
 
