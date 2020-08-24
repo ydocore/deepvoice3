@@ -300,9 +300,13 @@ class Decoder(nn.Module):
             self.force_monotonic_attention = force_monotonic_attention
 
     # 入力はなに？(正解のメルなの？)
-    def forward(self, encoder_out, inputs=None,
-                text_positions=None, frame_positions=None,
-                speaker_embed=None, lengths=None):
+    def forward(self,
+                encoder_out,
+                inputs=None,
+                text_positions=None,
+                frame_positions=None,
+                speaker_embed=None,
+                lengths=None):
         # 初回の場合
         if inputs is None:
             assert text_positions is not None
@@ -391,8 +395,13 @@ class Decoder(nn.Module):
         return outputs, torch.stack(alignments), done, decoder_states
 
     # 初回の時に使用
-    def incremental_forward(self, encoder_out, text_positions, speaker_embed=None,
-                            initial_input=None, test_inputs=None):
+    def incremental_forward(self,
+                            encoder_out,
+                            text_positions,
+                            speaker_embed=None,
+                            initial_input=None,
+                            test_inputs=None):
+        # エンコーダの出力を取得
         keys, values = encoder_out
         B = keys.size(0)
 
@@ -403,6 +412,7 @@ class Decoder(nn.Module):
         outputs = []
         alignments = []
         dones = []
+        # 単調強制に関する何か？
         # intially set to zeros
         last_attended = [None] * len(self.attention)
         for idx, v in enumerate(self.force_monotonic_attention):
@@ -410,13 +420,17 @@ class Decoder(nn.Module):
 
         num_attention_layers = sum([layer is not None for layer in self.attention])
         t = 0
+        # 最初の入力を設定？
         if initial_input is None:
             initial_input = keys.data.new(B, 1, self.in_dim *self.r).zero_()
         current_input = initial_input
+        
         while True:
+            # なんやこれ
             # frame pos start with 1.
             frame_pos = keys.data.new(B, 1).fill_(t + 1).long()
 
+            # 何かをテストする場合の入力を設定？
             if test_inputs is not None:
                 if t >= test_inputs.size(1):
                     break
@@ -426,6 +440,7 @@ class Decoder(nn.Module):
                     current_input = outputs[-1]
             x = current_input
 
+            # プレネット
             # Prenet
             for f, sf in zip(self.preattention, self.speaker_fc):
                 x = F.dropout(x, p=self.dropout, training=self.training)
@@ -433,10 +448,12 @@ class Decoder(nn.Module):
                     x = x + F.softsign(sf(speaker_embed))[:,None,:]
                 x = F.relu(f(x))
 
+            # 畳み込みブロック＋アテンションブロック
             # Casual convolutions + Multi-hop attentions
             ave_alignment = None
             for idx, (f, attention) in enumerate(zip(self.convolutions,
                                                      self.attention)):
+                # 畳み込みブロック
                 if isinstance(f, Conv1dGLU):
                     x = f.incremental_forward(x, speaker_embed)
                 else:
@@ -447,15 +464,18 @@ class Decoder(nn.Module):
 
                 residual = x
 
+                # アテンションブロック
                 # attention
                 if attention is not None:
                     assert isinstance(f, Conv1dGLU)
                     x, alignment = attention(x, (keys, values), text_positions=text_positions,
                              frame_positions=frame_pos, speaker_embed=speaker_embed,
                              incremental=True, last_attended=last_attended[idx])
+                    # 単調強制を実行
                     if self.force_monotonic_attention[idx]:
                         last_attended[idx] = alignment.max(-1)[1].view(-1).data[0]
 
+                    # なにこれ？
                     if ave_alignment is None:
                         #ave_alignment = alignment
                         ave_alignment = torch.zeros([len(self.attention),alignment.size(0),alignment.size(1),alignment.size(-1)])
@@ -463,17 +483,18 @@ class Decoder(nn.Module):
                     #    ave_alignment = ave_alignment + ave_alignment
 
                     ave_alignment[idx] = alignment
+                # 残左接続
                 # residual
                 if isinstance(f, Conv1dGLU):
                     x = (x + residual) * math.sqrt(0.5)
 
             decoder_state = x
-            out = self.last_fc(x)
-            gate = self.gate_fc(x)
+            out = self.last_fc(x) # ポストネット
+            gate = self.gate_fc(x) # ポストネット(gate)
 
             #output & done flag predictions
-            output = torch.sigmoid(gate) * out
-            done = torch.sigmoid(self.fc(x))
+            output = torch.sigmoid(gate) * out # gateを掛け合わせた値を求める
+            done = torch.sigmoid(self.fc(x)) # 最終フレーム予測を求める
 
             decoder_states += [decoder_state]
             outputs += [output]
@@ -481,6 +502,8 @@ class Decoder(nn.Module):
             dones += [done]
 
 
+            # [確認] .all()の中身
+            # .all()ってなに？
             t += 1
             if test_inputs is None:
                 if (done > 0.5).all() and t > self.min_decoder_steps:
@@ -488,12 +511,14 @@ class Decoder(nn.Module):
                 elif t > self.max_decoder_steps:
                     break
 
+        # サイズが1の次元を削除
         # Remove 1-element time axis
         #for idx, alignment in enumerate(alignments):
         alignments = list(map(lambda x: x.squeeze(1), alignments))
         decoder_states = list(map(lambda x: x.squeeze(1), decoder_states))
         outputs = list(map(lambda x: x.squeeze(1), outputs))
 
+        # 配列の中身を結合
         # Combine outputs for all time steps
         alignments = torch.stack(alignments).transpose(0, 2)
         decoder_states = torch.stack(decoder_states).transpose(0, 1).contiguous()
@@ -503,11 +528,13 @@ class Decoder(nn.Module):
 
         return outputs, alignments, dones, decoder_states
 
+    # プレネットと畳み込みブロックのバッファをクリアする
     def start_fresh_sequence(self):
         _clear_modules(self.preattention)
         _clear_modules(self.convolutions)
 
 
+# バッファをクリアする
 def _clear_modules(modules):
     for m in modules:
         try:
