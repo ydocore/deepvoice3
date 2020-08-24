@@ -164,7 +164,7 @@ class MultispeakerSeq2seq(nn.Module):
             text_positions, frame_positions, input_lengths)
         return mel_outputs, alignments, done
 
-
+# エンコーダとデコーダを実行するクラス
 #Attention
 class AttentionSeq2Seq(nn.Module):
     """Encoder + Decoder with attention
@@ -172,18 +172,26 @@ class AttentionSeq2Seq(nn.Module):
 
     def __init__(self, encoder, decoder):
         super(AttentionSeq2Seq, self).__init__()
-        self.encoder = encoder
-        self.decoder = decoder
+        self.encoder = encoder # エンコーダ
+        self.decoder = decoder # デコーダ
+        # アテンションの数を数えている？
         if isinstance(self.decoder.attention, nn.ModuleList):
             self.encoder.num_attention_layers = sum(
                 [layer is not None for layer in decoder.attention])
 
-    def forward(self, text_sequences, mel_targets=None, speaker_embed=None,
-                text_positions=None, frame_positions=None, input_lengths=None):
+    def forward(self,
+                text_sequences,
+                mel_targets=None,
+                speaker_embed=None,
+                text_positions=None,
+                frame_positions=None,
+                input_lengths=None):
+        # エンコーダ実行
         # (B, T, text_embed_dim)
         encoder_outputs = self.encoder(
             text_sequences, lengths=input_lengths, speaker_embed=speaker_embed)
 
+        # デコーダ実行
         # Mel: (B, T//r, mel_dim*r)
         # Alignments: (N, B, T_target, T_input)
         # Done: (B, T//r, 1)
